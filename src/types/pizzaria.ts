@@ -46,6 +46,7 @@ export interface CashMovement {
   type: 'entry' | 'exit';
   amount: number;
   description: string;
+  paymentMethod?: PaymentMethod;
   date: string;
 }
 
