@@ -31,22 +31,34 @@ export interface Sale {
   date: string;
 }
 
+export type MovementType = 'entry' | 'exit' | 'sangria' | 'reforco';
+
+export interface CashMovement {
+  id: string;
+  type: MovementType;
+  amount: number;
+  description: string;
+  paymentMethod?: PaymentMethod;
+  date: string;
+  origin?: 'manual' | 'pdv';
+}
+
 export interface CashRegister {
   id: string;
   openedAt: string;
   closedAt?: string;
   initialAmount: number;
+  informedAmount?: number;
   sales: Sale[];
   entries: CashMovement[];
   exits: CashMovement[];
 }
 
-export interface CashMovement {
+export interface AuditLog {
   id: string;
-  type: 'entry' | 'exit';
-  amount: number;
-  description: string;
-  paymentMethod?: PaymentMethod;
+  action: string;
+  details: string;
+  user: string;
   date: string;
 }
 

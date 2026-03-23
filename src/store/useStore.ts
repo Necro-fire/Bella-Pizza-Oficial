@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Product, CartItem, Sale, CashRegister, CashMovement, UserRole, PaymentSplit } from '@/types/pizzaria';
+import { Product, CartItem, Sale, CashRegister, CashMovement, UserRole, PaymentSplit, AuditLog, MovementType } from '@/types/pizzaria';
 
 const DEMO_PRODUCTS: Product[] = [
   { id: '1', name: 'Pizza Margherita', category: 'pizza', image: '🍕', price: 39.90, cost: 12.00, active: true },
@@ -46,9 +46,15 @@ interface AppState {
 
   // Cash register
   cashRegister: CashRegister | null;
+  cashHistory: CashRegister[];
   openRegister: (initialAmount: number) => void;
-  closeRegister: () => void;
+  closeRegister: (informedAmount?: number) => void;
   addMovement: (m: Omit<CashMovement, 'id' | 'date'>) => void;
+  deleteMovement: (movementId: string) => void;
+
+  // Audit logs
+  auditLogs: AuditLog[];
+  addAuditLog: (action: string, details: string) => void;
 }
 
 export const useStore = create<AppState>()(
@@ -61,17 +67,29 @@ export const useStore = create<AppState>()(
       unlockPin: (pin) => {
         if (pin === get().adminPin) {
           set({ pinUnlocked: true });
+          get().addAuditLog('PIN_UNLOCK', 'PIN administrativo desbloqueado');
           return true;
         }
+        get().addAuditLog('PIN_FAIL', 'Tentativa de PIN incorreto');
         return false;
       },
       lockPin: () => set({ pinUnlocked: false }),
       setAdminPin: (pin) => set({ adminPin: pin }),
 
       products: DEMO_PRODUCTS,
-      addProduct: (p) => set((s) => ({ products: [...s.products, p] })),
-      updateProduct: (p) => set((s) => ({ products: s.products.map((x) => (x.id === p.id ? p : x)) })),
-      deleteProduct: (id) => set((s) => ({ products: s.products.filter((x) => x.id !== id) })),
+      addProduct: (p) => {
+        set((s) => ({ products: [...s.products, p] }));
+        get().addAuditLog('PRODUCT_ADD', `Produto criado: ${p.name}`);
+      },
+      updateProduct: (p) => {
+        set((s) => ({ products: s.products.map((x) => (x.id === p.id ? p : x)) }));
+        get().addAuditLog('PRODUCT_UPDATE', `Produto atualizado: ${p.name}`);
+      },
+      deleteProduct: (id) => {
+        const product = get().products.find(p => p.id === id);
+        set((s) => ({ products: s.products.filter((x) => x.id !== id) }));
+        get().addAuditLog('PRODUCT_DELETE', `Produto removido: ${product?.name || id}`);
+      },
 
       cart: [],
       addToCart: (product) =>
@@ -111,7 +129,8 @@ export const useStore = create<AppState>()(
         }),
 
       cashRegister: null,
-      openRegister: (initialAmount) =>
+      cashHistory: [],
+      openRegister: (initialAmount) => {
         set({
           cashRegister: {
             id: crypto.randomUUID(),
@@ -121,20 +140,60 @@ export const useStore = create<AppState>()(
             entries: [],
             exits: [],
           },
+        });
+        get().addAuditLog('REGISTER_OPEN', `Caixa aberto com saldo inicial: R$ ${initialAmount.toFixed(2)}`);
+      },
+      closeRegister: (informedAmount) =>
+        set((s) => {
+          if (!s.cashRegister) return {};
+          const closed = {
+            ...s.cashRegister,
+            closedAt: new Date().toISOString(),
+            informedAmount,
+          };
+          get().addAuditLog('REGISTER_CLOSE', `Caixa fechado. Valor informado: R$ ${informedAmount?.toFixed(2) || 'N/A'}`);
+          return {
+            cashRegister: closed,
+            cashHistory: [...s.cashHistory, closed],
+          };
         }),
-      closeRegister: () =>
-        set((s) => ({
-          cashRegister: s.cashRegister ? { ...s.cashRegister, closedAt: new Date().toISOString() } : null,
-        })),
       addMovement: (m) =>
         set((s) => {
           if (!s.cashRegister) return {};
           const movement: CashMovement = { ...m, id: crypto.randomUUID(), date: new Date().toISOString() };
-          if (m.type === 'entry') {
+          const isEntry = m.type === 'entry' || m.type === 'reforco';
+          if (isEntry) {
             return { cashRegister: { ...s.cashRegister, entries: [...s.cashRegister.entries, movement] } };
           }
           return { cashRegister: { ...s.cashRegister, exits: [...s.cashRegister.exits, movement] } };
         }),
+      deleteMovement: (movementId) =>
+        set((s) => {
+          if (!s.cashRegister) return {};
+          get().addAuditLog('MOVEMENT_DELETE', `Movimentação removida: ${movementId.slice(0, 8)}`);
+          return {
+            cashRegister: {
+              ...s.cashRegister,
+              entries: s.cashRegister.entries.filter(e => e.id !== movementId),
+              exits: s.cashRegister.exits.filter(e => e.id !== movementId),
+            },
+          };
+        }),
+
+      auditLogs: [],
+      addAuditLog: (action, details) =>
+        set((s) => ({
+          auditLogs: [
+            {
+              id: crypto.randomUUID(),
+              action,
+              details,
+              user: s.userRole,
+              date: new Date().toISOString(),
+            },
+            ...s.auditLogs,
+          ].slice(0, 500),
+        })),
     }),
     { name: 'pizzaria-store' }
   )
