@@ -1,0 +1,1 @@
+ALTER TABLE public.borders ADD COLUMN cost NUMERIC DEFAULT 0;
