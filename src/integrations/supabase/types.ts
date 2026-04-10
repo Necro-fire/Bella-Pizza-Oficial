@@ -17,15 +17,15 @@ export type Database = {
       app_settings: {
         Row: {
           key: string
-          value: Json | null
+          value: Json
         }
         Insert: {
           key: string
-          value?: Json | null
+          value: Json
         }
         Update: {
           key?: string
-          value?: Json | null
+          value?: Json
         }
         Relationships: []
       }

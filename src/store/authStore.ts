@@ -9,6 +9,8 @@ interface AuthState {
   pin: string;
   pinUnlocked: boolean;
   companyName: string;
+  companyAddress: string;
+  companyPhone: string;
   dbLoaded: boolean;
 
   login: (cnpj: string, password: string) => Promise<boolean>;
@@ -24,6 +26,8 @@ interface AuthState {
 
   setCompanyName: (name: string) => void;
   setCnpj: (cnpj: string) => void;
+  setCompanyAddress: (address: string) => void;
+  setCompanyPhone: (phone: string) => void;
 
   loadFromDb: () => Promise<void>;
 }
@@ -51,7 +55,7 @@ async function fetchCredentialsFromDb(): Promise<Record<string, string>> {
     const { data } = await supabase
       .from('app_settings')
       .select('key, value')
-      .in('key', ['auth_password', 'auth_pin', 'auth_cnpj', 'company_name']);
+      .in('key', ['auth_password', 'auth_pin', 'auth_cnpj', 'company_name', 'company_address', 'company_phone']);
     if (data) {
       data.forEach(r => { map[r.key] = parseDbValue(r.value); });
     }
@@ -68,6 +72,8 @@ export const useAuthStore = create<AuthState>()(
       pin: '',
       pinUnlocked: false,
       companyName: '',
+      companyAddress: '',
+      companyPhone: '',
       dbLoaded: false,
 
       loadFromDb: async () => {
@@ -77,6 +83,8 @@ export const useAuthStore = create<AuthState>()(
           pin: map.auth_pin || '',
           cnpj: map.auth_cnpj || '',
           companyName: map.company_name || '',
+          companyAddress: map.company_address || '',
+          companyPhone: map.company_phone || '',
           dbLoaded: true,
         });
       },
@@ -97,6 +105,8 @@ export const useAuthStore = create<AuthState>()(
             pin: map.auth_pin || '',
             cnpj: dbCnpj,
             companyName: map.company_name || '',
+            companyAddress: map.company_address || '',
+            companyPhone: map.company_phone || '',
             dbLoaded: true,
           });
           return true;
@@ -155,6 +165,16 @@ export const useAuthStore = create<AuthState>()(
       setCnpj: (cnpj) => {
         set({ cnpj });
         saveToDb('auth_cnpj', cnpj);
+      },
+
+      setCompanyAddress: (address) => {
+        set({ companyAddress: address });
+        saveToDb('company_address', address);
+      },
+
+      setCompanyPhone: (phone) => {
+        set({ companyPhone: phone });
+        saveToDb('company_phone', phone);
       },
     }),
     {

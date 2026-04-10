@@ -72,19 +72,23 @@ export function Cart() {
     }
     setIsSubmitting(true);
     try {
+      const finalName = deliveryMode === 'entrega' ? (deliveryAddress.name || '').trim() : customerName.trim();
+      const finalContact = deliveryMode === 'entrega' ? (deliveryAddress.phone || '').trim() : customerContact.trim();
       const sale = await finalizeSale(
-        payments, change, customerName.trim(), customerContact.trim(), [],
+        payments, change, finalName, finalContact, [],
         deliveryMode,
         deliveryMode === 'entrega' ? deliveryAddress : undefined,
         deliveryMode === 'entrega' ? parseCurrency(deliveryFeeInput) : 0
       );
+      // Store sale for receipt BEFORE clearing state
       setLastSale(sale);
+      setShowReceiptConfirm(true);
+      // Reset payment state but DON'T trigger any reload
       setPayments([]); setShowPayment(false); setSplitMode(false); setCurrentMethod(null);
       setCustomerName(''); setCustomerContact('');
       setDeliveryMode('retirada');
       setDeliveryAddress({ name: '', phone: '', cep: '', street: '', number: '', neighborhood: '', complement: '', reference: '' });
       setDeliveryFeeInput('');
-      setShowReceiptConfirm(true);
     } catch (e) {
       toast.error('Erro ao finalizar venda');
     } finally {
@@ -113,12 +117,14 @@ export function Cart() {
     return label;
   };
 
+  // Show empty cart only when cart is empty AND receipt dialog is not open
   if (cart.length === 0 && !showReceiptConfirm) {
     return (
       <div className="w-80 glass-card p-4 flex flex-col items-center justify-center gap-2 shrink-0">
         <span className="text-4xl">🛒</span>
         <p className="text-muted-foreground text-sm">Carrinho vazio</p>
         <p className="text-muted-foreground text-xs">Clique em um produto para adicionar</p>
+        <ReceiptDialog sale={lastSale} open={showReceiptConfirm} onOpenChange={setShowReceiptConfirm} />
       </div>
     );
   }
@@ -211,13 +217,17 @@ export function Cart() {
             </div>
           ) : (
             <div className="space-y-3 animate-fade-in max-h-[40vh] overflow-y-auto pr-1">
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nome do cliente (opcional)" className="bg-secondary border-border h-8 text-xs" />
-              <Input
-                value={customerContact}
-                onChange={(e) => setCustomerContact(maskPhone(e.target.value))}
-                placeholder="Telefone (99) 99999-9999"
-                className="bg-secondary border-border h-8 text-xs"
-              />
+              {deliveryMode === 'retirada' && (
+                <>
+                  <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Nome do cliente (opcional)" className="bg-secondary border-border h-8 text-xs" />
+                  <Input
+                    value={customerContact}
+                    onChange={(e) => setCustomerContact(maskPhone(e.target.value))}
+                    placeholder="Telefone (99) 99999-9999"
+                    className="bg-secondary border-border h-8 text-xs"
+                  />
+                </>
+              )}
 
               {/* Delivery / Pickup toggle */}
               <div className="flex gap-2">
@@ -252,7 +262,7 @@ export function Cart() {
                   <Input
                     value={deliveryAddress.phone}
                     onChange={(e) => setDeliveryAddress({ ...deliveryAddress, phone: maskPhone(e.target.value) })}
-                    placeholder="Telefone (opcional)"
+                    placeholder="Telefone (99) 99999-9999"
                     className="bg-card border-border h-7 text-xs"
                   />
                   <Input

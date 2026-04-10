@@ -32,6 +32,19 @@ const emptySoda: Omit<SodaProduct, 'id'> = {
   name: '', icon: '🥤', price: 0, cost: 0, active: true, size: '1L', freeSizes: [],
 };
 
+/** Currency mask for product price/cost fields: 0,00 format */
+const maskProductCurrency = (value: string): string => {
+  const digits = value.replace(/\D/g, '');
+  if (!digits) return '';
+  const num = parseInt(digits, 10);
+  return (num / 100).toFixed(2).replace('.', ',');
+};
+
+const parseProductCurrency = (value: string): number => {
+  const digits = value.replace(/\D/g, '');
+  return parseInt(digits, 10) / 100 || 0;
+};
+
 export default function Produtos() {
   const {
     products, addProduct, updateProduct, deleteProduct,
@@ -45,30 +58,85 @@ export default function Produtos() {
   const [filterCat, setFilterCat] = useState<Category | 'all'>('all');
   const [obsInput, setObsInput] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Masked string state for price/cost fields
+  const [priceStr, setPriceStr] = useState('');
+  const [costStr, setCostStr] = useState('');
+  const [pizzaPriceStrs, setPizzaPriceStrs] = useState<Record<PizzaSize, string>>({ P: '', M: '', G: '', GG: '' });
+  const [pizzaCostStrs, setPizzaCostStrs] = useState<Record<PizzaSize, string>>({ P: '', M: '', G: '', GG: '' });
 
   // Border dialog
   const [borderDialogOpen, setBorderDialogOpen] = useState(false);
   const [editingBorder, setEditingBorder] = useState<PizzaBorder | null>(null);
   const [borderForm, setBorderForm] = useState<Omit<PizzaBorder, 'id'>>(emptyBorder);
   const [deleteBorderConfirm, setDeleteBorderConfirm] = useState<string | null>(null);
+  const [borderPriceStr, setBorderPriceStr] = useState('');
+  const [borderCostStr, setBorderCostStr] = useState('');
+  const [isSavingBorder, setIsSavingBorder] = useState(false);
 
   // Soda dialog
   const [sodaDialogOpen, setSodaDialogOpen] = useState(false);
   const [editingSoda, setEditingSoda] = useState<SodaProduct | null>(null);
   const [sodaForm, setSodaForm] = useState<Omit<SodaProduct, 'id'>>(emptySoda);
   const [deleteSodaConfirm, setDeleteSodaConfirm] = useState<string | null>(null);
+  const [sodaPriceStr, setSodaPriceStr] = useState('');
+  const [sodaCostStr, setSodaCostStr] = useState('');
+  const [isSavingSoda, setIsSavingSoda] = useState(false);
 
   const filtered = products.filter(p => filterCat === 'all' || p.category === filterCat);
   const isPizza = form.category === 'pizza';
 
-  const openNew = () => { setForm(emptyProduct); setEditing(null); setDialogOpen(true); };
-  const openEdit = (p: Product) => { setForm({ ...p }); setEditing(p); setDialogOpen(true); };
+  const numToMasked = (n: number) => n > 0 ? (n).toFixed(2).replace('.', ',') : '';
+
+  const openNew = () => {
+    setForm(emptyProduct);
+    setEditing(null);
+    setPriceStr(''); setCostStr('');
+    setPizzaPriceStrs({ P: '', M: '', G: '', GG: '' });
+    setPizzaCostStrs({ P: '', M: '', G: '', GG: '' });
+    setDialogOpen(true);
+  };
+  const openEdit = (p: Product) => {
+    setForm({ ...p });
+    setEditing(p);
+    setPriceStr(numToMasked(p.price));
+    setCostStr(numToMasked(p.cost));
+    if (p.pizzaPrices) {
+      setPizzaPriceStrs({ P: numToMasked(p.pizzaPrices.P || 0), M: numToMasked(p.pizzaPrices.M || 0), G: numToMasked(p.pizzaPrices.G || 0), GG: numToMasked(p.pizzaPrices.GG || 0) });
+    }
+    if (p.pizzaCosts) {
+      setPizzaCostStrs({ P: numToMasked(p.pizzaCosts.P || 0), M: numToMasked(p.pizzaCosts.M || 0), G: numToMasked(p.pizzaCosts.G || 0), GG: numToMasked(p.pizzaCosts.GG || 0) });
+    }
+    setDialogOpen(true);
+  };
 
   const handleSave = async () => {
+    if (isSaving) return;
     if (!form.name.trim()) { toast.error('Nome obrigatório'); return; }
-    if (editing) { await updateProduct({ ...form, id: editing.id } as Product); toast.success('Atualizado'); }
-    else { await addProduct({ ...form, id: crypto.randomUUID() } as Product); toast.success('Adicionado'); }
-    setDialogOpen(false);
+    setIsSaving(true);
+    try {
+      // Build final values from masked strings
+      const finalForm = { ...form };
+      if (isPizza) {
+        finalForm.pizzaPrices = {
+          P: parseProductCurrency(pizzaPriceStrs.P), M: parseProductCurrency(pizzaPriceStrs.M),
+          G: parseProductCurrency(pizzaPriceStrs.G), GG: parseProductCurrency(pizzaPriceStrs.GG),
+        };
+        finalForm.pizzaCosts = {
+          P: parseProductCurrency(pizzaCostStrs.P), M: parseProductCurrency(pizzaCostStrs.M),
+          G: parseProductCurrency(pizzaCostStrs.G), GG: parseProductCurrency(pizzaCostStrs.GG),
+        };
+      } else {
+        finalForm.price = parseProductCurrency(priceStr);
+        finalForm.cost = parseProductCurrency(costStr);
+      }
+      if (editing) { await updateProduct({ ...finalForm, id: editing.id } as Product); toast.success('Atualizado'); }
+      else { await addProduct({ ...finalForm, id: crypto.randomUUID() } as Product); toast.success('Adicionado'); }
+      setDialogOpen(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDelete = (id: string) => { setDeleteConfirm(id); };
@@ -76,13 +144,30 @@ export default function Produtos() {
   const addObs = () => { if (!obsInput.trim()) return; setForm({ ...form, observations: [...(form.observations || []), obsInput.trim()] }); setObsInput(''); };
 
   // Border handlers
-  const openNewBorder = () => { setBorderForm({ ...emptyBorder }); setEditingBorder(null); setBorderDialogOpen(true); };
-  const openEditBorder = (b: PizzaBorder) => { setBorderForm({ name: b.name, price: b.price, cost: b.cost, active: b.active, freeSizes: [...b.freeSizes] }); setEditingBorder(b); setBorderDialogOpen(true); };
+  const openNewBorder = () => {
+    setBorderForm({ ...emptyBorder }); setEditingBorder(null);
+    setBorderPriceStr(''); setBorderCostStr('');
+    setBorderDialogOpen(true);
+  };
+  const openEditBorder = (b: PizzaBorder) => {
+    setBorderForm({ name: b.name, price: b.price, cost: b.cost, active: b.active, freeSizes: [...b.freeSizes] });
+    setEditingBorder(b);
+    setBorderPriceStr(numToMasked(b.price));
+    setBorderCostStr(numToMasked(b.cost));
+    setBorderDialogOpen(true);
+  };
   const handleSaveBorder = async () => {
+    if (isSavingBorder) return;
     if (!borderForm.name.trim()) { toast.error('Nome obrigatório'); return; }
-    if (editingBorder) { await updateBorder({ ...borderForm, id: editingBorder.id } as PizzaBorder); toast.success('Borda atualizada'); }
-    else { await addBorder({ ...borderForm, id: crypto.randomUUID() } as PizzaBorder); toast.success('Borda adicionada'); }
-    setBorderDialogOpen(false);
+    setIsSavingBorder(true);
+    try {
+      const finalBorder = { ...borderForm, price: parseProductCurrency(borderPriceStr), cost: parseProductCurrency(borderCostStr) };
+      if (editingBorder) { await updateBorder({ ...finalBorder, id: editingBorder.id } as PizzaBorder); toast.success('Borda atualizada'); }
+      else { await addBorder({ ...finalBorder, id: crypto.randomUUID() } as PizzaBorder); toast.success('Borda adicionada'); }
+      setBorderDialogOpen(false);
+    } finally {
+      setIsSavingBorder(false);
+    }
   };
   const confirmDeleteBorder = async () => { if (deleteBorderConfirm) { await deleteBorder(deleteBorderConfirm); toast.success('Borda removida'); setDeleteBorderConfirm(null); } };
 
@@ -92,14 +177,31 @@ export default function Produtos() {
   };
 
   // Soda handlers
-  const openNewSoda = () => { setSodaForm({ ...emptySoda }); setEditingSoda(null); setSodaDialogOpen(true); };
-  const openEditSoda = (s: SodaProduct) => { setSodaForm({ name: s.name, icon: s.icon, price: s.price, cost: s.cost, active: s.active, size: s.size, freeSizes: [...(s.freeSizes || [])] }); setEditingSoda(s); setSodaDialogOpen(true); };
+  const openNewSoda = () => {
+    setSodaForm({ ...emptySoda }); setEditingSoda(null);
+    setSodaPriceStr(''); setSodaCostStr('');
+    setSodaDialogOpen(true);
+  };
+  const openEditSoda = (s: SodaProduct) => {
+    setSodaForm({ name: s.name, icon: s.icon, price: s.price, cost: s.cost, active: s.active, size: s.size, freeSizes: [...(s.freeSizes || [])] });
+    setEditingSoda(s);
+    setSodaPriceStr(numToMasked(s.price));
+    setSodaCostStr(numToMasked(s.cost));
+    setSodaDialogOpen(true);
+  };
   const handleSaveSoda = async () => {
+    if (isSavingSoda) return;
     if (!sodaForm.name.trim()) { toast.error('Nome obrigatório'); return; }
-    const p: SodaProduct = { id: editingSoda?.id || crypto.randomUUID(), ...sodaForm };
-    if (editingSoda) { await updateSodaProduct(p); toast.success('Refrigerante atualizado'); }
-    else { await addSodaProduct(p); toast.success('Refrigerante adicionado'); }
-    setSodaDialogOpen(false);
+    setIsSavingSoda(true);
+    try {
+      const finalSoda = { ...sodaForm, price: parseProductCurrency(sodaPriceStr), cost: parseProductCurrency(sodaCostStr) };
+      const p: SodaProduct = { id: editingSoda?.id || crypto.randomUUID(), ...finalSoda };
+      if (editingSoda) { await updateSodaProduct(p); toast.success('Refrigerante atualizado'); }
+      else { await addSodaProduct(p); toast.success('Refrigerante adicionado'); }
+      setSodaDialogOpen(false);
+    } finally {
+      setIsSavingSoda(false);
+    }
   };
   const confirmDeleteSoda = async () => { if (deleteSodaConfirm) { await deleteSodaProduct(deleteSodaConfirm); toast.success('Refrigerante removido'); setDeleteSodaConfirm(null); } };
   const toggleSodaFreeSize = (sz: PizzaSize) => {
@@ -241,6 +343,15 @@ export default function Produtos() {
                     <p className="text-[10px] text-destructive flex items-center gap-1">
                       <Lock className="w-2.5 h-2.5" /> Custo: {formatCurrency(s.cost)}
                     </p>
+                    {s.freeSizes && s.freeSizes.length > 0 && (
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {s.freeSizes.map(sz => (
+                          <span key={sz} className="text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5">
+                            <Gift className="w-2.5 h-2.5" /> Grátis {sz}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-1">
                     <button onClick={() => openEditSoda(s)} className="p-2 rounded-lg bg-secondary hover:bg-accent transition-colors">
@@ -299,7 +410,13 @@ export default function Produtos() {
                   <div className="grid grid-cols-4 gap-2 mt-1">
                     {PIZZA_SIZES.map(s => (
                       <div key={s.value}><span className="text-[10px] text-muted-foreground">{s.value}</span>
-                        <Input type="number" step="0.01" value={form.pizzaPrices?.[s.value]||''} onChange={e => setForm({...form,pizzaPrices:{...form.pizzaPrices!,[s.value]:parseFloat(e.target.value)||0}})} className="bg-secondary border-border h-8 text-xs" />
+                        <Input
+                          inputMode="numeric"
+                          value={pizzaPriceStrs[s.value]}
+                          onChange={e => setPizzaPriceStrs({...pizzaPriceStrs, [s.value]: maskProductCurrency(e.target.value)})}
+                          placeholder="0,00"
+                          className="bg-secondary border-border h-8 text-xs"
+                        />
                       </div>
                     ))}
                   </div>
@@ -309,15 +426,39 @@ export default function Produtos() {
                   <div className="grid grid-cols-4 gap-2 mt-1">
                     {PIZZA_SIZES.map(s => (
                       <div key={s.value}><span className="text-[10px] text-muted-foreground">{s.value}</span>
-                        <Input type="number" step="0.01" value={form.pizzaCosts?.[s.value]||''} onChange={e => setForm({...form,pizzaCosts:{...form.pizzaCosts!,[s.value]:parseFloat(e.target.value)||0}})} className="bg-secondary border-border h-8 text-xs" />
+                        <Input
+                          inputMode="numeric"
+                          value={pizzaCostStrs[s.value]}
+                          onChange={e => setPizzaCostStrs({...pizzaCostStrs, [s.value]: maskProductCurrency(e.target.value)})}
+                          placeholder="0,00"
+                          className="bg-secondary border-border h-8 text-xs"
+                        />
                       </div>
                     ))}
                   </div>
                 </div>
               </>)}
               {!isPizza && (<>
-                <div><label className="text-xs text-muted-foreground">Preço *</label><Input type="number" step="0.01" value={form.price||''} onChange={e => setForm({...form,price:parseFloat(e.target.value)||0})} className="bg-secondary border-border" /></div>
-                <div><label className="text-xs text-muted-foreground flex items-center gap-1"><Lock className="w-3 h-3"/>Custo</label><Input type="number" step="0.01" value={form.cost||''} onChange={e => setForm({...form,cost:parseFloat(e.target.value)||0})} className="bg-secondary border-border" /></div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Preço *</label>
+                  <Input
+                    inputMode="numeric"
+                    value={priceStr}
+                    onChange={e => setPriceStr(maskProductCurrency(e.target.value))}
+                    placeholder="0,00"
+                    className="bg-secondary border-border"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground flex items-center gap-1"><Lock className="w-3 h-3"/>Custo</label>
+                  <Input
+                    inputMode="numeric"
+                    value={costStr}
+                    onChange={e => setCostStr(maskProductCurrency(e.target.value))}
+                    placeholder="0,00"
+                    className="bg-secondary border-border"
+                  />
+                </div>
               </>)}
               <div>
                 <label className="text-xs text-muted-foreground">Observações</label>
@@ -332,7 +473,9 @@ export default function Produtos() {
                   <Button size="sm" onClick={addObs} className="h-8">+</Button>
                 </div>
               </div>
-              <Button onClick={handleSave} className="w-full bg-primary hover:bg-primary/90 font-bold">{editing ? 'Salvar' : 'Adicionar'}</Button>
+              <Button onClick={handleSave} disabled={isSaving} className="w-full bg-primary hover:bg-primary/90 font-bold">
+                {isSaving ? 'Salvando...' : (editing ? 'Salvar' : 'Adicionar')}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -348,11 +491,23 @@ export default function Produtos() {
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Preço (R$)</label>
-                <Input type="number" step="0.01" value={borderForm.price||''} onChange={e => setBorderForm({...borderForm, price: parseFloat(e.target.value)||0})} className="bg-secondary border-border" />
+                <Input
+                  inputMode="numeric"
+                  value={borderPriceStr}
+                  onChange={e => setBorderPriceStr(maskProductCurrency(e.target.value))}
+                  placeholder="0,00"
+                  className="bg-secondary border-border"
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground flex items-center gap-1"><Lock className="w-3 h-3" /> Custo (R$)</label>
-                <Input type="number" step="0.01" value={borderForm.cost||''} onChange={e => setBorderForm({...borderForm, cost: parseFloat(e.target.value)||0})} className="bg-secondary border-border" />
+                <Input
+                  inputMode="numeric"
+                  value={borderCostStr}
+                  onChange={e => setBorderCostStr(maskProductCurrency(e.target.value))}
+                  placeholder="0,00"
+                  className="bg-secondary border-border"
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Borda grátis por tamanho</label>
@@ -377,7 +532,9 @@ export default function Produtos() {
                   {borderForm.active ? 'Sim' : 'Não'}
                 </button>
               </div>
-              <Button onClick={handleSaveBorder} className="w-full bg-primary hover:bg-primary/90 font-bold">{editingBorder ? 'Salvar' : 'Adicionar'}</Button>
+              <Button onClick={handleSaveBorder} disabled={isSavingBorder} className="w-full bg-primary hover:bg-primary/90 font-bold">
+                {isSavingBorder ? 'Salvando...' : (editingBorder ? 'Salvar' : 'Adicionar')}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -404,11 +561,23 @@ export default function Produtos() {
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Preço (R$)</label>
-                <Input type="number" step="0.01" value={sodaForm.price||''} onChange={e => setSodaForm({...sodaForm, price: parseFloat(e.target.value)||0})} className="bg-secondary border-border" />
+                <Input
+                  inputMode="numeric"
+                  value={sodaPriceStr}
+                  onChange={e => setSodaPriceStr(maskProductCurrency(e.target.value))}
+                  placeholder="0,00"
+                  className="bg-secondary border-border"
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground flex items-center gap-1"><Lock className="w-3 h-3" /> Custo (R$)</label>
-                <Input type="number" step="0.01" value={sodaForm.cost||''} onChange={e => setSodaForm({...sodaForm, cost: parseFloat(e.target.value)||0})} className="bg-secondary border-border" />
+                <Input
+                  inputMode="numeric"
+                  value={sodaCostStr}
+                  onChange={e => setSodaCostStr(maskProductCurrency(e.target.value))}
+                  placeholder="0,00"
+                  className="bg-secondary border-border"
+                />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground flex items-center gap-1"><Gift className="w-3 h-3" /> Grátis por tamanho de pizza</label>
@@ -433,7 +602,9 @@ export default function Produtos() {
                   {sodaForm.active ? 'Sim' : 'Não'}
                 </button>
               </div>
-              <Button onClick={handleSaveSoda} className="w-full bg-primary hover:bg-primary/90 font-bold">{editingSoda ? 'Salvar' : 'Adicionar'}</Button>
+              <Button onClick={handleSaveSoda} disabled={isSavingSoda} className="w-full bg-primary hover:bg-primary/90 font-bold">
+                {isSavingSoda ? 'Salvando...' : (editingSoda ? 'Salvar' : 'Adicionar')}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

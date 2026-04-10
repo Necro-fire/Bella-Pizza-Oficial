@@ -14,6 +14,7 @@ export default function PDV() {
   const [selectedPizzaId, setSelectedPizzaId] = useState<string | undefined>();
   const [showOpenDialog, setShowOpenDialog] = useState(false);
   const [initialAmount, setInitialAmount] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const isOpen = cashRegister && !cashRegister.closedAt;
 
   const handlePizzaClick = (productId: string) => {
@@ -22,15 +23,21 @@ export default function PDV() {
   };
 
   const handleOpenRegister = async () => {
+    if (isSubmitting) return;
     const amount = parseFloat(initialAmount.replace(',', '.'));
     if (isNaN(amount) || amount < 0) {
       toast.error('Informe um valor válido');
       return;
     }
-    await openRegister(amount);
-    setInitialAmount('');
-    setShowOpenDialog(false);
-    toast.success('Caixa aberto!');
+    setIsSubmitting(true);
+    try {
+      await openRegister(amount);
+      setInitialAmount('');
+      setShowOpenDialog(false);
+      toast.success('Caixa aberto!');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Show alert only when: cart has items AND register is closed
@@ -73,8 +80,8 @@ export default function PDV() {
               onKeyDown={e => e.key === 'Enter' && handleOpenRegister()}
             />
             <div className="flex gap-2">
-              <Button onClick={handleOpenRegister} className="flex-1 bg-success hover:bg-success/90 text-success-foreground font-bold h-10">
-                Confirmar
+              <Button onClick={handleOpenRegister} disabled={isSubmitting} className="flex-1 bg-success hover:bg-success/90 text-success-foreground font-bold h-10">
+                {isSubmitting ? 'Abrindo...' : 'Confirmar'}
               </Button>
               <Button onClick={() => setShowOpenDialog(false)} variant="outline" className="h-10">
                 Cancelar

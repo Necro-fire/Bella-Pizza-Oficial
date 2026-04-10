@@ -111,7 +111,9 @@ export const useStore = create<AppState>()((set, get) => ({
   cart: [],
 
   fetchAll: async () => {
-    set({ loading: true });
+    // Only show loading spinner on initial load, not on realtime refetches
+    const isInitial = get().loading;
+    if (isInitial) set({ loading: true });
     const [
       { data: productsData },
       { data: bordersData },

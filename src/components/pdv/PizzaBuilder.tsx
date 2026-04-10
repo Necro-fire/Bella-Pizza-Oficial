@@ -26,22 +26,38 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
   const [selectedBorderId, setSelectedBorderId] = useState<string | null>(null);
   const [noBorder, setNoBorder] = useState(true);
   const [selectedSodaId, setSelectedSodaId] = useState<string | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
 
   const flavor1 = pizzas.find((p) => p.id === flavor1Id);
   const flavor2 = pizzas.find((p) => p.id === flavor2Id);
   const selectedBorder = borders.find(b => b.id === selectedBorderId && b.active);
   const selectedSoda = sodaProducts.find(s => s.id === selectedSodaId);
 
-  // Check free rules
+  // Check free rules - combine global rules + per-item freeSizes
   const isBorderFreeForSize = useMemo(() => {
     const rule = freeBorderRules.find(r => r.size === size);
     return rule?.enabled ?? false;
   }, [freeBorderRules, size]);
 
   const isSodaFreeForSize = useMemo(() => {
-    const rule = freeSodaRules.find(r => r.size === size);
-    return rule?.enabled ?? false;
-  }, [freeSodaRules, size]);
+    // Check global rule
+    const globalRule = freeSodaRules.find(r => r.size === size);
+    if (globalRule?.enabled) return true;
+    // Check if any soda product has this size in its freeSizes
+    return sodaProducts.some(s => s.active && s.freeSizes && s.freeSizes.includes(size));
+  }, [freeSodaRules, size, sodaProducts]);
+
+  // Get sodas available as free for this size
+  const freeSodasForSize = useMemo(() => {
+    if (!isSodaFreeForSize) return [];
+    const globalRule = freeSodaRules.find(r => r.size === size);
+    if (globalRule?.enabled) {
+      // All active sodas are free
+      return sodaProducts.filter(s => s.active);
+    }
+    // Only sodas with this size in their freeSizes
+    return sodaProducts.filter(s => s.active && s.freeSizes && s.freeSizes.includes(size));
+  }, [isSodaFreeForSize, freeSodaRules, size, sodaProducts]);
 
   const isBorderFree = (border: PizzaBorder) => {
     return isBorderFreeForSize || border.freeSizes.includes(size);
@@ -57,7 +73,6 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
       const p2 = getPrice(flavor2, size);
       total = p1 / 2 + p2 / 2;
     }
-    // Add border price if not free
     if (!noBorder && selectedBorder) {
       if (!isBorderFree(selectedBorder)) {
         total += selectedBorder.price;
@@ -73,40 +88,44 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
   const activeBorders = borders.filter(b => b.active);
 
   const handleAdd = () => {
-    if (!flavor1) return;
-    if (isSodaFreeForSize && !selectedSodaId) return; // must select soda
+    if (!flavor1 || isAdding) return;
+    if (isSodaFreeForSize && freeSodasForSize.length > 0 && !selectedSodaId) return;
 
-    const price = calculatePrice();
-    const border = !noBorder && selectedBorder ? selectedBorder : undefined;
-    const borderIsFree = border ? isBorderFree(border) : false;
-    const freeSoda = isSodaFreeForSize && selectedSoda ? selectedSoda : undefined;
+    setIsAdding(true);
+    try {
+      const price = calculatePrice();
+      const border = !noBorder && selectedBorder ? selectedBorder : undefined;
+      const borderIsFree = border ? isBorderFree(border) : false;
+      const freeSoda = isSodaFreeForSize && selectedSoda ? selectedSoda : undefined;
 
-    addToCart({
-      id: crypto.randomUUID(),
-      product: flavor1,
-      quantity: 1,
-      observations: [],
-      pizzaSize: size,
-      secondFlavor: twoFlavors ? flavor2 : undefined,
-      calculatedPrice: price,
-      border,
-      borderFree: borderIsFree,
-      freeSoda,
-    });
-
-    // Add free soda as separate cart item with price 0
-    if (freeSoda) {
       addToCart({
         id: crypto.randomUUID(),
-        product: { id: freeSoda.id, name: `${freeSoda.name} (Grátis)`, category: 'bebida' as const, icon: freeSoda.icon, price: 0, cost: freeSoda.cost, active: true },
+        product: flavor1,
         quantity: 1,
-        observations: ['Refrigerante grátis - Pizza ' + size],
-        calculatedPrice: 0,
+        observations: [],
+        pizzaSize: size,
+        secondFlavor: twoFlavors ? flavor2 : undefined,
+        calculatedPrice: price,
+        border,
+        borderFree: borderIsFree,
+        freeSoda,
       });
-    }
 
-    onClose();
-    resetState();
+      if (freeSoda) {
+        addToCart({
+          id: crypto.randomUUID(),
+          product: { id: freeSoda.id, name: `${freeSoda.name} (Grátis)`, category: 'bebida' as const, icon: freeSoda.icon, price: 0, cost: freeSoda.cost, active: true },
+          quantity: 1,
+          observations: ['Refrigerante grátis - Pizza ' + size],
+          calculatedPrice: 0,
+        });
+      }
+
+      onClose();
+      resetState();
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   const resetState = () => {
@@ -118,7 +137,15 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
     setSelectedBorderId(null);
     setNoBorder(true);
     setSelectedSodaId(null);
+    setIsAdding(false);
   };
+
+  // Reset selected soda when size changes and it's no longer available
+  useEffect(() => {
+    if (selectedSodaId && !freeSodasForSize.find(s => s.id === selectedSodaId)) {
+      setSelectedSodaId(null);
+    }
+  }, [size, freeSodasForSize, selectedSodaId]);
 
   useEffect(() => {
     if (initialFlavorId && open) setFlavor1Id(initialFlavorId);
@@ -156,7 +183,6 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
 
   const isDoce = flavor1?.pizzaType === 'doce';
   const showBordasTab = categoryFilter === 'bordas' && !isDoce;
-
   const showBordas = showBordasTab;
 
   return (
@@ -194,7 +220,7 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
             )}
             {isSodaFreeForSize && (
               <span className="inline-flex items-center gap-1 text-[10px] text-info bg-info/10 px-2 py-0.5 rounded-full font-medium">
-                <Gift className="w-3 h-3" /> Refrigerante 1L grátis
+                <Gift className="w-3 h-3" /> Refrigerante grátis
               </span>
             )}
           </div>
@@ -239,7 +265,6 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-2 block">Escolha a Borda</label>
             <div className="space-y-1.5">
-              {/* No border option */}
               <button
                 onClick={() => { setNoBorder(true); setSelectedBorderId(null); }}
                 className={`w-full text-left px-3 py-2.5 rounded-lg transition-all border ${
@@ -318,14 +343,14 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
         )}
 
         {/* Free Soda Selection */}
-        {isSodaFreeForSize && (
+        {isSodaFreeForSize && freeSodasForSize.length > 0 && (
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-2 block flex items-center gap-1">
-              <Gift className="w-3 h-3 text-info" /> Refrigerante 1L Grátis
+              <Gift className="w-3 h-3 text-info" /> Refrigerante Grátis
               <span className="text-destructive">*</span>
             </label>
             <div className="grid grid-cols-2 gap-1.5">
-              {sodaProducts.filter(s => s.active).map(soda => (
+              {freeSodasForSize.map(soda => (
                 <button
                   key={soda.id}
                   onClick={() => setSelectedSodaId(soda.id)}
@@ -394,10 +419,10 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
 
         <Button
           onClick={handleAdd}
-          disabled={!flavor1 || (twoFlavors && !flavor2) || (isSodaFreeForSize && !selectedSodaId)}
+          disabled={!flavor1 || (twoFlavors && !flavor2) || (isSodaFreeForSize && freeSodasForSize.length > 0 && !selectedSodaId) || isAdding}
           className="w-full bg-primary hover:bg-primary/90 font-bold text-sm h-11"
         >
-          Adicionar ao Carrinho
+          {isAdding ? 'Adicionando...' : 'Adicionar ao Carrinho'}
         </Button>
       </DialogContent>
     </Dialog>
