@@ -17,15 +17,15 @@ export type Database = {
       app_settings: {
         Row: {
           key: string
-          value: Json
+          value: Json | null
         }
         Insert: {
           key: string
-          value: Json
+          value?: Json | null
         }
         Update: {
           key?: string
-          value?: Json
+          value?: Json | null
         }
         Relationships: []
       }
@@ -397,7 +397,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      generate_sale_code: { Args: never; Returns: string }
+      [_ in never]: never
     }
     Enums: {
       [_ in never]: never
