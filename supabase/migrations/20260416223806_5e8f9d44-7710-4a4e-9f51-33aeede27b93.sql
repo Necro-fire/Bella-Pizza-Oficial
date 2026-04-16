@@ -1,0 +1,5 @@
+UPDATE sales SET code='000151' WHERE id='bcbe511b-7fcb-4a60-a85c-50c88167a0dd';
+UPDATE sales SET code='000152' WHERE id='5a3ec8fa-a078-4103-995c-d6bd8ea4f627';
+UPDATE sales SET code='000153' WHERE id='5060a820-968d-4c99-a0b5-2a11236c433c';
+UPDATE sales SET code='000154' WHERE id='d94fe6dd-6046-414d-86a7-48307b0df3b7';
+UPDATE sales SET code='000155' WHERE id='f8486c8a-e00a-4528-9afb-0814e5a3eac8';
