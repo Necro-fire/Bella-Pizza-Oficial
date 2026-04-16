@@ -13,33 +13,41 @@ interface ReceiptDialogProps {
 
 const COMPANY_NAME = 'Bella Pizza';
 const COMPANY_CNPJ = '61.157280/0001-30';
-const COL = 28; // chars that safely fit 55mm at 13px monospace
 
-function pad(left: string, right: string): string {
-  const gap = COL - left.length - right.length;
-  return left + (gap > 0 ? ' '.repeat(gap) : ' ') + right;
-}
-
-function center(text: string): string {
-  const p = Math.max(0, Math.floor((COL - text.length) / 2));
-  return ' '.repeat(p) + text;
-}
-
-function wrap(text: string, max: number): string[] {
-  if (text.length <= max) return [text];
-  const words = text.split(' ');
-  const lines: string[] = [];
-  let cur = '';
-  for (const w of words) {
-    if (!cur) cur = w;
-    else if (cur.length + 1 + w.length <= max) cur += ' ' + w;
-    else { lines.push(cur); cur = w; }
-  }
-  if (cur) lines.push(cur);
-  return lines;
-}
-
-const SEP = '─'.repeat(COL);
+/** Remove all accents and special characters from text */
+const stripAccents = (text: string): string => {
+  if (!text) return '';
+  // Normalize to NFD to separate base characters from diacritics
+  let result = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  
+  // Replace common special characters that thermal printers can't handle
+  const specialChars: { [key: string]: string } = {
+    'ç': 'c',
+    'Ç': 'C',
+    'ã': 'a',
+    'õ': 'o',
+    'Ã': 'A',
+    'Õ': 'O',
+    '—': '-',  // em dash to hyphen
+    '–': '-',  // en dash to hyphen
+    '…': '...',  // ellipsis
+    '®': '',   // registered sign
+    '™': '',   // trademark sign
+    '©': '',   // copyright sign
+    '°': 'o',  // degree symbol
+    'º': 'o',  // ordinal indicator
+    'ª': 'a',  // feminine ordinal
+  };
+  
+  Object.keys(specialChars).forEach(char => {
+    result = result.split(char).join(specialChars[char]);
+  });
+  
+  // Remove any remaining non-ASCII printable characters
+  result = result.replace(/[^\u0020-\u007E\n\t]/g, '');
+  
+  return result;
+};
 
 export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) {
   const [showPreview, setShowPreview] = useState(false);
@@ -49,25 +57,29 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
   const dateStr = new Date(sale.date).toLocaleDateString('pt-BR');
   const timeStr = new Date(sale.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-  const buildHTML = (): string => {
-    const h = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const ln = (t: string, cls = '') => `<div class="${cls}">${h(t).replace(/ /g, '&nbsp;')}</div>`;
-    const sep = () => `<div class="sep">${SEP}</div>`;
-    const b = (t: string) => ln(t, 'b');
-    const ct = (t: string, cls = '') => `<div class="ct ${cls}">${h(t)}</div>`;
+  const getItemLabel = (item: Sale['items'][0]) => {
+    let label = item.product.name;
+    if (item.pizzaSize) label = `Pizza ${item.pizzaSize} ${label}`;
+    return label;
+  };
 
-    const p: string[] = [];
+  const buildReceiptHTML = (): string => {
+    const SEP = '<div class="sep">--------------------------------------------------</div>';
+    const SPACER = '<div class="spacer"></div>';
+    const mainLines: string[] = [];
 
-    // Header
-    p.push(ct(COMPANY_NAME, 'company'));
-    p.push(ct(`CNPJ: ${COMPANY_CNPJ}`));
-    p.push(sep());
+    // Header - Company
+    mainLines.push(`<div class="center bold company-name">${COMPANY_NAME}</div>`);
+    mainLines.push(`<div class="center">CNPJ: ${COMPANY_CNPJ}</div>`);
+    mainLines.push(SEP);
 
-    // Order
-    p.push(ct(`PEDIDO #${sale.code}`, 'b'));
-    p.push(ct(sale.deliveryMode === 'entrega' ? 'ENTREGA' : 'RETIRADA'));
-    p.push(ct(`${dateStr} — ${timeStr}`));
-    p.push(sep());
+    // Order info
+    mainLines.push(SPACER);
+    mainLines.push(`<div class="center bold section-title">PEDIDO #${sale.code}</div>`);
+    mainLines.push(`<div class="center">${sale.deliveryMode === 'entrega' ? 'ENTREGA' : 'RETIRADA'}</div>`);
+    mainLines.push(`<div class="center">${dateStr} - ${timeStr}</div>`);
+    mainLines.push(SPACER);
+    mainLines.push(SEP);
 
     // Customer
     const custName = sale.deliveryMode === 'entrega'
@@ -78,156 +90,300 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
       : sale.customerContact;
 
     if (custName || custPhone) {
-      p.push(ct('CLIENTE', 'b'));
-      if (custName) p.push(ln(`Nome: ${custName}`));
-      if (custPhone) p.push(ln(`Telefone: ${custPhone}`));
-      p.push(sep());
+      mainLines.push(SEP);
+      mainLines.push(SPACER);
+      mainLines.push(`<div class="center bold section-title">CLIENTE</div>`);
+      if (custName) mainLines.push(`<div>Nome: ${stripAccents(custName)}</div>`);
+      if (custPhone) mainLines.push(`<div>Telefone: ${stripAccents(custPhone)}</div>`);
+      mainLines.push(SPACER);
+      mainLines.push(SEP);
     }
 
-    // Address
+    // Delivery address
     if (sale.deliveryMode === 'entrega' && sale.deliveryAddress) {
       const addr = sale.deliveryAddress;
-      p.push(ct('ENDEREÇO DE ENTREGA', 'b'));
-      let addrLine = addr.street;
+      mainLines.push(SPACER);
+      mainLines.push(`<div class="center bold section-title">ENDERECO DE ENTREGA</div>`);
+      let addrLine = stripAccents(addr.street);
       if (addr.number) addrLine += `, ${addr.number}`;
-      if (addr.neighborhood) addrLine += ` - ${addr.neighborhood}`;
-      wrap(addrLine, COL).forEach(l => p.push(ln(l)));
-      if (addr.cep) p.push(ln(`CEP: ${addr.cep}`));
-      if (addr.complement) wrap(`Compl: ${addr.complement}`, COL).forEach(l => p.push(ln(l)));
-      if (addr.reference) wrap(`Ref: ${addr.reference}`, COL).forEach(l => p.push(ln(l)));
-      p.push(sep());
+      if (addr.neighborhood) addrLine += ` - ${stripAccents(addr.neighborhood)}`;
+      mainLines.push(`<div>${addrLine}</div>`);
+      if (addr.cep) mainLines.push(`<div>CEP: ${stripAccents(addr.cep)}</div>`);
+      if (addr.complement) mainLines.push(`<div>${stripAccents(addr.complement)}</div>`);
+      if (addr.reference) mainLines.push(`<div>${stripAccents(addr.reference)}</div>`);
+      mainLines.push(SPACER);
+      mainLines.push(SEP);
     }
 
-    // Items
-    p.push(ct('ITENS DO PEDIDO', 'b'));
-    p.push(b(pad('Qtd Item', 'Valor')));
+    // Separate paid items from free/promotional items
+    const paidItems = sale.items.filter(item => item.calculatedPrice > 0);
+    const freeItems = sale.items.filter(item => item.calculatedPrice === 0);
 
-    sale.items.forEach(item => {
-      let label = item.product.name;
-      if (item.pizzaSize) label = `Pizza ${item.pizzaSize} ${label}`;
-      const totalItem = item.calculatedPrice * item.quantity;
-      const priceStr = formatCurrency(totalItem);
-      const qtyStr = `${item.quantity}   `;
-      const maxW = COL - qtyStr.length - priceStr.length - 1;
+    const renderItemRows = (items: typeof sale.items, lines: string[]) => {
+      items.forEach((item, idx) => {
+        const label = stripAccents(getItemLabel(item));
+        const totalItem = item.calculatedPrice * item.quantity;
+        const priceLabel = item.calculatedPrice === 0 ? 'Gratis' : formatCurrency(totalItem);
+        lines.push(`<tr><td>${item.quantity}</td><td>${label}</td><td class="right">${priceLabel}</td></tr>`);
 
-      if (label.length <= maxW) {
-        p.push(ln(pad(qtyStr + label, priceStr)));
-      } else {
-        const wrapped = wrap(label, maxW);
-        p.push(ln(pad(qtyStr + wrapped[0], priceStr)));
-        for (let i = 1; i < wrapped.length; i++) {
-          p.push(ln('    ' + wrapped[i]));
+        if (item.secondFlavor) {
+          lines.push(`<tr><td></td><td class="sub">/ ${stripAccents(item.secondFlavor.name)}</td><td></td></tr>`);
         }
-      }
-
-      if (item.secondFlavor) {
-        p.push(ln(`    / ${item.secondFlavor.name}`, 'sub'));
-      }
-      if (item.border) {
-        const bPrice = item.borderFree ? 'Grátis' : formatCurrency(item.border.price);
-        p.push(ln(`    Borda: ${item.border.name} (${bPrice})`, 'sub'));
-      }
-      if (item.freeSoda) {
-        p.push(ln(`    * Refri grátis - Pizza ${item.pizzaSize}`, 'sub'));
-      }
-      item.observations.forEach(obs => {
-        p.push(ln(`    * ${obs}`, 'sub'));
+        if (item.border) {
+          const bPrice = item.borderFree ? 'Gratis' : formatCurrency(item.border.price);
+          lines.push(`<tr><td></td><td class="sub">Borda: ${stripAccents(item.border.name)} (${bPrice})</td><td></td></tr>`);
+        }
+        if (item.freeSoda) {
+          lines.push(`<tr><td></td><td class="sub">+ ${stripAccents(item.freeSoda.name)} Gratis</td><td></td></tr>`);
+        }
+        item.observations.forEach(obs => {
+          lines.push(`<tr><td></td><td class="sub obs">* ${stripAccents(obs)}</td><td></td></tr>`);
+        });
+        // Separator after every item
+        lines.push(`<tr class="item-sep"><td colspan="3"><div class="item-separator">--------------------------------------------------</div></td></tr>`);
       });
-    });
+    };
 
-    p.push(sep());
+    // Paid items section
+    mainLines.push(SEP);
+    mainLines.push(SPACER);
+    mainLines.push(`<div class="center bold section-title">ITENS DO PEDIDO</div>`);
+    mainLines.push(SPACER);
+    mainLines.push(`<table><thead><tr><th class="left">Qtd</th><th class="left">Item</th><th class="right">Valor</th></tr></thead><tbody>`);
+    renderItemRows(paidItems.length > 0 ? paidItems : sale.items, mainLines);
+    mainLines.push(`</tbody></table>`);
+    mainLines.push(SPACER);
+    mainLines.push(SEP);
+
+    // Free/promotional items section (only if there are both paid and free items)
+    if (paidItems.length > 0 && freeItems.length > 0) {
+      mainLines.push(SPACER);
+      mainLines.push(`<div class="center bold section-title">ITENS GRATIS</div>`);
+      mainLines.push(SPACER);
+      mainLines.push(`<table><tbody>`);
+      renderItemRows(freeItems, mainLines);
+      mainLines.push(`</tbody></table>`);
+      mainLines.push(SPACER);
+      mainLines.push(SEP);
+    }
 
     // Totals
+    mainLines.push(SPACER);
+    mainLines.push(`<div class="center bold section-title">TOTAIS</div>`);
+    mainLines.push(SPACER);
     const subtotal = sale.total - (sale.deliveryFee || 0);
-    p.push(ln(pad('Itens do pedido', formatCurrency(subtotal))));
+    mainLines.push(`<div class="row"><span>Itens do pedido</span><span>${formatCurrency(subtotal)}</span></div>`);
     if (sale.deliveryFee && sale.deliveryFee > 0) {
-      p.push(ln(pad('Taxa de entrega', formatCurrency(sale.deliveryFee))));
+      mainLines.push(`<div class="row"><span>Taxa de entrega</span><span>${formatCurrency(sale.deliveryFee)}</span></div>`);
     }
-    p.push(b(pad('TOTAL', formatCurrency(sale.total))));
-    p.push(sep());
+    mainLines.push(`<div class="row bold total-row"><span>TOTAL</span><span>${formatCurrency(sale.total)}</span></div>`);
+    mainLines.push(SPACER);
+    mainLines.push(SEP);
 
     // Payment
-    p.push(ct('FORMA DE PAGAMENTO', 'b'));
-    sale.payments.forEach(pm => {
-      const label = PAYMENT_METHODS.find(m => m.method === pm.method)?.label || pm.method;
-      p.push(ln(pad(label, formatCurrency(pm.amount))));
+    mainLines.push(SPACER);
+    mainLines.push(`<div class="center bold section-title">FORMA DE PAGAMENTO</div>`);
+    mainLines.push(SPACER);
+    sale.payments.forEach(p => {
+      const label = PAYMENT_METHODS.find(m => m.method === p.method)?.label || p.method;
+      mainLines.push(`<div class="row"><span>${label}</span><span>${formatCurrency(p.amount)}</span></div>`);
     });
     if (sale.change > 0) {
-      p.push(ln(pad('Troco', formatCurrency(sale.change))));
+      mainLines.push(`<div class="row"><span>Troco</span><span>${formatCurrency(sale.change)}</span></div>`);
     }
-    p.push(sep());
+    mainLines.push(SPACER);
+    mainLines.push(SEP);
 
     // Observations
     if (sale.observations && sale.observations.length > 0) {
-      p.push(ct('OBSERVAÇÕES', 'b'));
-      sale.observations.forEach(o => {
-        wrap(o, COL).forEach(l => p.push(ln(l)));
-      });
-      p.push(sep());
+      mainLines.push(SEP);
+      mainLines.push(SPACER);
+      mainLines.push(`<div class="center bold section-title">OBSERVACOES</div>`);
+      mainLines.push(SPACER);
+      sale.observations.forEach(o => mainLines.push(`<div>${stripAccents(o)}</div>`));
+      mainLines.push(SPACER);
+      mainLines.push(SEP);
     }
 
-    // Footer
-    p.push(ct('Obrigado pela preferência!', 'b'));
-    p.push(ct('Volte sempre.'));
+    // Sanitize: remove consecutive duplicate separators
+    const sanitized: string[] = [];
+    for (let i = 0; i < mainLines.length; i++) {
+      const isSep = mainLines[i] === SEP;
+      const prevIsSep = sanitized.length > 0 && sanitized[sanitized.length - 1] === SEP;
+      if (isSep && prevIsSep) continue; // skip duplicate
+      sanitized.push(mainLines[i]);
+    }
 
-    return p.join('\n');
+    // Return wrapped structure
+    return `
+      <div class="receipt-wrapper">
+        <div class="receipt-content">
+          ${sanitized.join('\n')}
+        </div>
+      </div>
+    `;
   };
 
   const receiptCSS = `
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    .receipt {
-      font-family: Consolas, 'Courier New', 'Lucida Console', monospace;
-      font-size: 13px;
-      line-height: 1.25;
-      width: 55mm;
-      max-width: 55mm;
-      margin: 0 auto;
-      padding: 1.5mm 2mm;
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+    }
+    body {
+      font-family: Consolas, 'Courier New', monospace;
+      font-size: 12px;
       color: #000;
-      background: #fff;
-      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
-    .receipt div {
-      font-family: inherit;
-      font-size: inherit;
-      line-height: inherit;
-      white-space: pre;
-      overflow: hidden;
-      text-overflow: clip;
+    .receipt-wrapper {
+      width: 80mm;
+      margin: 0 auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
-    .receipt .ct {
+    .receipt-content {
+      flex: 1;
+    }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .company-name { font-size: 16px; margin-bottom: 2px; }
+    .section-title { font-size: 13px; margin-bottom: 4px; }
+    .sep { 
       text-align: center;
-      white-space: normal;
-      word-break: break-word;
+      color: #000;
+      font-size: 12px;
+      line-height: 1;
+      margin: 4px 0;
+      padding: 2px 0;
+      font-family: Consolas, 'Courier New', monospace;
+      font-weight: normal;
+      letter-spacing: 0;
     }
-    .receipt .company {
-      font-size: 17px;
-      font-weight: bold;
+    .spacer { height: 4px; }
+    .row { display: flex; justify-content: space-between; padding: 1px 0; }
+    .total-row { font-size: 14px; margin-top: 4px; }
+    .sub { font-size: 11px; padding-left: 4px; color: #333; }
+    .obs { font-style: italic; }
+    .item-sep td { padding: 0; }
+    .item-separator {
+      display: block;
+      width: 100%;
+      margin: 3px 0;
+      overflow: hidden;
+      white-space: nowrap;
       text-align: center;
-      white-space: normal;
-      padding: 1mm 0;
+      letter-spacing: 0;
+      line-height: 1;
+      color: #000;
     }
-    .receipt .b { font-weight: bold; }
-    .receipt .sub { color: #333; font-size: 12px; }
-    .receipt .sep { color: #aaa; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 3px 0; vertical-align: top; }
+    th { font-weight: bold; }
+    .left { text-align: left; }
+    .right { text-align: right; }
+    th:first-child, td:first-child { width: 28px; }
+    th:last-child, td:last-child { width: 70px; text-align: right; }
+    
+    @media print {
+      * { margin: 0; padding: 0; }
+      html, body { margin: 0; padding: 0; width: 100%; }
+      body { display: flex; flex-direction: column; }
+      .receipt-wrapper { 
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      .receipt-content { flex: 1; }
+      .sep { 
+        display: block !important;
+        visibility: visible !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        color: #000 !important;
+        line-height: 1 !important;
+        margin: 3px 0 !important;
+      }
+      .spacer { display: block !important; height: 2px !important; }
+    }
   `;
-
-  const printCSS = `
-    ${receiptCSS}
-    @page { size: 55mm auto; margin: 0; }
-    body { margin: 0; padding: 0; }
-  `;
-
-  const receiptHTML = buildHTML();
 
   const printReceipt = () => {
-    const w = window.open('', '', 'width=250,height=600');
+    const content = buildReceiptHTML();
+    const w = window.open('', '', 'width=320,height=600');
     if (!w) return;
-    w.document.write(`<html><head><meta charset="utf-8"><style>${printCSS}</style></head><body><div class="receipt">${receiptHTML}</div></body></html>`);
+    w.document.write(`<html><head><style>${receiptCSS}</style></head><body>${content}</body></html>`);
     w.document.close();
     w.print();
     w.close();
   };
+
+  const previewHTML = buildReceiptHTML();
+
+  const previewCSS = `
+    .receipt-preview { 
+      font-family: Consolas, 'Courier New', monospace; 
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+    .receipt-preview .receipt-wrapper {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+    .receipt-preview .receipt-content {
+      flex: 1;
+    }
+    .receipt-preview .center { text-align: center; }
+    .receipt-preview .bold { font-weight: bold; }
+    .receipt-preview .company-name { font-size: 16px; margin-bottom: 2px; }
+    .receipt-preview .section-title { font-size: 13px; margin-bottom: 4px; }
+    .receipt-preview .sep { 
+      text-align: center;
+      color: #000;
+      font-size: 12px;
+      line-height: 1;
+      margin: 4px 0;
+      padding: 2px 0;
+      font-family: Consolas, 'Courier New', monospace;
+      font-weight: normal;
+      letter-spacing: 0;
+    }
+    .receipt-preview .spacer { height: 4px; }
+    .receipt-preview .row { display: flex; justify-content: space-between; padding: 1px 0; }
+    .receipt-preview .total-row { font-size: 14px; margin-top: 4px; }
+    .receipt-preview .sub { font-size: 11px; padding-left: 4px; color: #333; }
+    .receipt-preview .obs { font-style: italic; }
+    .receipt-preview .item-sep td { padding: 0; }
+    .receipt-preview .item-separator {
+      display: block;
+      width: 100%;
+      margin: 3px 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-align: center;
+      letter-spacing: 0;
+      line-height: 1;
+      color: #000;
+    }
+    .receipt-preview table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .receipt-preview th, .receipt-preview td { padding: 3px 0; vertical-align: top; }
+    .receipt-preview th { font-weight: bold; }
+    .receipt-preview .left { text-align: left; }
+    .receipt-preview .right { text-align: right; }
+    .receipt-preview th:first-child, .receipt-preview td:first-child { width: 28px; }
+    .receipt-preview th:last-child, .receipt-preview td:last-child { width: 70px; text-align: right; }
+  `;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -251,9 +407,9 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
         </div>
 
         {showPreview && (
-          <div className="bg-white text-black border border-border rounded-lg max-h-[50vh] overflow-y-auto animate-fade-in flex justify-center">
-            <style dangerouslySetInnerHTML={{ __html: receiptCSS }} />
-            <div className="receipt" dangerouslySetInnerHTML={{ __html: receiptHTML }} />
+          <div className="bg-white text-black border border-border rounded-lg p-4 max-h-[45vh] overflow-y-auto animate-fade-in">
+            <style dangerouslySetInnerHTML={{ __html: previewCSS }} />
+            <div className="receipt-preview" dangerouslySetInnerHTML={{ __html: previewHTML }} />
           </div>
         )}
 

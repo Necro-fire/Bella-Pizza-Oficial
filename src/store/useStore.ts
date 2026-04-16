@@ -48,7 +48,7 @@ interface AppState {
   cashRegister: CashRegister | null;
   cashHistory: CashRegister[];
   auditLogs: AuditLog[];
-  nextSaleCode: number;
+  // nextSaleCode removed - now generated atomically in the database
   loading: boolean;
 
   // Local-only state
@@ -106,7 +106,7 @@ export const useStore = create<AppState>()((set, get) => ({
   cashRegister: null,
   cashHistory: [],
   auditLogs: [],
-  nextSaleCode: 1,
+  // nextSaleCode removed
   loading: true,
   cart: [],
 
@@ -121,7 +121,6 @@ export const useStore = create<AppState>()((set, get) => ({
       { data: fbrData },
       { data: fsrData },
       { data: salesData },
-      { data: settingsData },
       { data: auditData },
       { data: registersData },
       { data: closedRegistersData },
@@ -132,7 +131,6 @@ export const useStore = create<AppState>()((set, get) => ({
       supabase.from('free_border_rules').select('*'),
       supabase.from('free_soda_rules').select('*'),
       supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(500),
-      supabase.from('app_settings').select('*').eq('key', 'next_sale_code').single(),
       supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(500),
       supabase.from('cash_registers').select('*').is('closed_at', null).limit(1),
       supabase.from('cash_registers').select('*').not('closed_at', 'is', null).order('closed_at', { ascending: false }).limit(50),
@@ -252,7 +250,7 @@ export const useStore = create<AppState>()((set, get) => ({
       sales: mappedSales,
       cashRegister,
       cashHistory,
-      nextSaleCode: settingsData ? Number(settingsData.value) || 1 : 1,
+      // nextSaleCode removed - generated in database
       auditLogs: (auditData || []).map(a => ({
         id: a.id, action: a.action, details: a.details || '', user: a.user_name || 'system', date: a.created_at!,
       })),
@@ -342,8 +340,12 @@ export const useStore = create<AppState>()((set, get) => ({
     const state = get();
     const subtotal = state.cart.reduce((sum, i) => sum + i.calculatedPrice * i.quantity, 0);
     const total = subtotal + (deliveryFee || 0);
-    const code = String(state.nextSaleCode).padStart(6, '0');
     const registerId = state.cashRegister?.id || null;
+
+    // Generate code atomically in the backend
+    const { data: codeData, error: codeError } = await supabase.rpc('generate_sale_code');
+    if (codeError || !codeData) throw new Error('Falha ao gerar código da venda');
+    const code = codeData as string;
 
     const { data: saleRow, error } = await supabase.from('sales').insert({
       code, register_id: registerId, total, change_amount: change,
@@ -369,9 +371,6 @@ export const useStore = create<AppState>()((set, get) => ({
     }));
     await supabase.from('sale_items').insert(itemsToInsert);
 
-    const newCode = state.nextSaleCode + 1;
-    await supabase.from('app_settings').update({ value: newCode as any }).eq('key', 'next_sale_code');
-
     const sale: Sale = {
       id: saleRow.id, code, items: [...state.cart], payments, total, change,
       date: saleRow.created_at, customerName, customerContact, observations: observations || [],
@@ -380,7 +379,6 @@ export const useStore = create<AppState>()((set, get) => ({
 
     set(s => ({
       sales: [sale, ...s.sales],
-      nextSaleCode: newCode,
       cart: [],
       cashRegister: s.cashRegister ? { ...s.cashRegister, sales: [...s.cashRegister.sales, sale] } : s.cashRegister,
     }));
