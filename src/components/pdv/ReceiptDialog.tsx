@@ -64,7 +64,7 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
   };
 
   const buildReceiptHTML = (): string => {
-    const SEP = '<div class="sep">--------------------------------------------------</div>';
+    const SEP = '<div class="sep">----------------------------------------------</div>';
     const SPACER = '<div class="spacer"></div>';
     const mainLines: string[] = [];
 
