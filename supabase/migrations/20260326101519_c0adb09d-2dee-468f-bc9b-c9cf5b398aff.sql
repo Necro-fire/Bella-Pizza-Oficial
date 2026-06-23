@@ -1,1 +1,0 @@
-ALTER TABLE public.soda_products ADD COLUMN IF NOT EXISTS free_sizes text[] DEFAULT '{}'::text[];

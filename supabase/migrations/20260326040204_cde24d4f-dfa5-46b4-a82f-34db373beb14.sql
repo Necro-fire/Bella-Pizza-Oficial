@@ -1,1 +1,0 @@
-ALTER TABLE public.soda_products ADD COLUMN IF NOT EXISTS size TEXT DEFAULT '1L';
