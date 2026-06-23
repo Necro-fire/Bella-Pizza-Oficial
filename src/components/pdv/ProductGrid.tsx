@@ -11,9 +11,7 @@ interface ProductGridProps {
 }
 
 export function ProductGrid({ onPizzaClick }: ProductGridProps) {
-  const products = useStore(s => s.products);
-  const addToCart = useStore(s => s.addToCart);
-  const cashRegister = useStore(s => s.cashRegister);
+  const { products, addToCart, cashRegister } = useStore();
   const [category, setCategory] = useState<Category | 'all'>('all');
   const [search, setSearch] = useState('');
   const isOpen = cashRegister && !cashRegister.closedAt;

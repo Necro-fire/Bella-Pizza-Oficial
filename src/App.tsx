@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -8,15 +8,12 @@ import { LoginPage } from "@/components/auth/LoginPage";
 import { useAuthStore } from "@/store/authStore";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/integrations/supabase/client";
-
-// Lazy-load route components — keeps initial bundle small, each page loads on demand
-const PDV = lazy(() => import("./pages/PDV"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Produtos = lazy(() => import("./pages/Produtos"));
-const Caixa = lazy(() => import("./pages/Caixa"));
-const Vendas = lazy(() => import("./pages/Vendas"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-
+import PDV from "./pages/PDV";
+import Dashboard from "./pages/Dashboard";
+import Produtos from "./pages/Produtos";
+import Caixa from "./pages/Caixa";
+import Vendas from "./pages/Vendas";
+import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
@@ -69,22 +66,15 @@ function AuthenticatedApp() {
       <div className="flex flex-col h-screen">
         <TopNav />
         <div className="flex-1 overflow-auto">
-          <Suspense fallback={
-            <div className="flex items-center justify-center h-full">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          }>
-            <Routes>
-              <Route path="/" element={<PDV />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/produtos" element={<Produtos />} />
-              <Route path="/caixa" element={<Caixa />} />
-              <Route path="/vendas" element={<Vendas />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
+          <Routes>
+            <Route path="/" element={<PDV />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/produtos" element={<Produtos />} />
+            <Route path="/caixa" element={<Caixa />} />
+            <Route path="/vendas" element={<Vendas />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
         </div>
-
       </div>
     </BrowserRouter>
   );

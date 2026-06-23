@@ -1,0 +1,1 @@
+UPDATE app_settings SET value = to_jsonb(trim(both '"' from (value #>> '{}')::text)) WHERE key IN ('auth_password', 'auth_pin', 'auth_cnpj', 'company_name') AND (value #>> '{}') LIKE '"%"';
