@@ -10,12 +10,7 @@ import { toast } from 'sonner';
 import { ReceiptDialog } from './ReceiptDialog';
 
 export function Cart() {
-  const cart = useStore(s => s.cart);
-  const removeFromCart = useStore(s => s.removeFromCart);
-  const updateCartItem = useStore(s => s.updateCartItem);
-  const clearCart = useStore(s => s.clearCart);
-  const finalizeSale = useStore(s => s.finalizeSale);
-  const cashRegister = useStore(s => s.cashRegister);
+  const { cart, removeFromCart, updateCartItem, clearCart, finalizeSale, cashRegister } = useStore();
   const [showPayment, setShowPayment] = useState(false);
   const [payments, setPayments] = useState<PaymentSplit[]>([]);
   const [currentMethod, setCurrentMethod] = useState<PaymentMethod | null>(null);

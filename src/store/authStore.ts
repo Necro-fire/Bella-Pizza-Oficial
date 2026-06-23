@@ -15,7 +15,7 @@ interface AuthState {
 
   login: (cnpj: string, password: string) => Promise<boolean>;
   logout: () => void;
-  unlockPin: (pin: string) => boolean;
+  unlockPin: (pin: string) => Promise<boolean>;
   lockPin: () => void;
 
   recoverPasswordWithPin: (pin: string) => string | null;
@@ -116,9 +116,12 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => set({ isAuthenticated: false, pinUnlocked: false }),
 
-      unlockPin: (pin) => {
-        if (pin === get().pin) {
-          set({ pinUnlocked: true });
+      unlockPin: async (pin) => {
+        // Always validate against fresh DB value to avoid stale in-memory state
+        const map = await fetchCredentialsFromDb();
+        const dbPin = map.auth_pin || get().pin;
+        if (pin && pin === dbPin) {
+          set({ pin: dbPin, pinUnlocked: true });
           return true;
         }
         return false;

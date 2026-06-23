@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { PinGuard } from '@/components/PinGuard';
 import { DateFilter, filterByDate } from '@/components/DateFilter';
 import { useStore } from '@/store/useStore';
@@ -14,22 +14,12 @@ import { ReceiptDialog } from '@/components/pdv/ReceiptDialog';
 import { ProfessionalAlert } from '@/components/ui/professional-alert';
 
 export default function Vendas() {
-  const { sales, fetchSales, cancelSale } = useStore();
+  const { sales, cancelSale } = useStore();
   const [dateRange, setDateRange] = useState({ start: startOfDay(new Date()), end: endOfDay(new Date()) });
   const [search, setSearch] = useState('');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [saleToCancel, setSaleToCancel] = useState<Sale | null>(null);
-  const [loadingSales, setLoadingSales] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    setLoadingSales(true);
-    fetchSales(dateRange.start.toISOString(), dateRange.end.toISOString()).finally(() => {
-      if (active) setLoadingSales(false);
-    });
-    return () => { active = false; };
-  }, [dateRange.end, dateRange.start, fetchSales]);
 
   const filtered = useMemo(() => {
     let result = filterByDate(sales, dateRange.start, dateRange.end);
@@ -103,8 +93,7 @@ export default function Vendas() {
               </div>
             </div>
           ))}
-          {loadingSales && <p className="text-center text-muted-foreground py-8">Carregando vendas...</p>}
-          {!loadingSales && filtered.length === 0 && <p className="text-center text-muted-foreground py-8">Nenhuma venda encontrada</p>}
+          {filtered.length === 0 && <p className="text-center text-muted-foreground py-8">Nenhuma venda encontrada</p>}
         </div>
 
         {/* Sale detail dialog */}
