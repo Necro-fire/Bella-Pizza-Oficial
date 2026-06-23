@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { PinGuard } from '@/components/PinGuard';
 import { DateFilter } from '@/components/DateFilter';
 import { useStore } from '@/store/useStore';
@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function Caixa() {
-  const { cashRegister, cashHistory, openRegister, closeRegister, addMovement, deleteMovement, addAuditLog } = useStore();
+  const { cashRegister, cashHistory, fetchCashHistory, openRegister, closeRegister, addMovement, deleteMovement, addAuditLog } = useStore();
   const [initialAmount, setInitialAmount] = useState('');
   const [movType, setMovType] = useState<'reforco' | 'sangria'>('reforco');
   const [movAmount, setMovAmount] = useState('');
@@ -29,6 +29,7 @@ export default function Caixa() {
   const [errorAlert, setErrorAlert] = useState<string | null>(null);
   const [successAlert, setSuccessAlert] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const isOpen = cashRegister && !cashRegister.closedAt;
 
@@ -36,6 +37,15 @@ export default function Caixa() {
     cashHistory.filter(r => { const d = new Date(r.openedAt); return d >= dateRange.start && d <= dateRange.end; }),
     [cashHistory, dateRange]
   );
+
+  useEffect(() => {
+    let active = true;
+    setHistoryLoading(true);
+    fetchCashHistory(dateRange.start.toISOString(), dateRange.end.toISOString()).finally(() => {
+      if (active) setHistoryLoading(false);
+    });
+    return () => { active = false; };
+  }, [dateRange.end, dateRange.start, fetchCashHistory]);
 
   const handleOpen = async () => {
     if (isSubmitting) return;
@@ -287,7 +297,8 @@ export default function Caixa() {
                 </div>
               );
             })}
-            {filteredHistory.length === 0 && <p className="text-xs text-muted-foreground text-center py-6">Nenhum registro no período</p>}
+            {historyLoading && <p className="text-xs text-muted-foreground text-center py-6">Carregando histórico...</p>}
+            {!historyLoading && filteredHistory.length === 0 && <p className="text-xs text-muted-foreground text-center py-6">Nenhum registro no período</p>}
           </div>
         </div>
       </div>

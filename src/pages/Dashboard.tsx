@@ -26,6 +26,9 @@ const tooltipStyle = {
   color: 'hsl(var(--foreground))',
 };
 
+const SALE_COLUMNS = 'id,code,total,change_amount,created_at,customer_name,customer_contact,observations,cancelled,cancelled_at,delivery_mode,delivery_address,delivery_fee,payments,register_id';
+const SALE_ITEM_COLUMNS = 'id,sale_id,product_data,quantity,observations,pizza_size,second_flavor,calculated_price,border_data,border_free,free_soda';
+
 const EmptyState = ({ message }: { message: string }) => (
   <div className="h-[200px] flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
     {message}
@@ -47,7 +50,7 @@ export default function Dashboard() {
 
       const { data: salesRows, error: salesError } = await supabase
         .from('sales')
-        .select('*')
+        .select(SALE_COLUMNS)
         .gte('created_at', dateRange.start.toISOString())
         .lte('created_at', dateRange.end.toISOString())
         .order('created_at', { ascending: true })
@@ -63,7 +66,7 @@ export default function Dashboard() {
 
       const saleIds = (salesRows || []).map((sale) => sale.id);
       const { data: saleItemsRows, error: itemsError } = saleIds.length > 0
-        ? await supabase.from('sale_items').select('*').in('sale_id', saleIds)
+        ? await supabase.from('sale_items').select(SALE_ITEM_COLUMNS).in('sale_id', saleIds)
         : { data: [], error: null };
 
       if (itemsError) {
@@ -73,6 +76,12 @@ export default function Dashboard() {
         }
         return;
       }
+      const itemsBySaleId = new Map<string, typeof saleItemsRows>();
+      (saleItemsRows || []).forEach((item) => {
+        const list = itemsBySaleId.get(item.sale_id) || [];
+        list.push(item);
+        itemsBySaleId.set(item.sale_id, list);
+      });
 
       const mappedSales: Sale[] = (salesRows || []).map((sale) => ({
         id: sale.id,
@@ -89,9 +98,7 @@ export default function Dashboard() {
         deliveryAddress: sale.delivery_address as any,
         deliveryFee: Number(sale.delivery_fee) || 0,
         payments: (sale.payments || []) as any,
-        items: (saleItemsRows || [])
-          .filter((item) => item.sale_id === sale.id)
-          .map((item) => ({
+        items: (itemsBySaleId.get(sale.id) || []).map((item) => ({
             id: item.id,
             product: item.product_data as any,
             quantity: item.quantity || 1,

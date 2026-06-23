@@ -15,8 +15,13 @@ interface PizzaBuilderProps {
 type BuilderCategory = 'all' | PizzaType | 'bordas';
 
 export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderProps) {
-  const { products, addToCart, borders, freeBorderRules, freeSodaRules, sodaProducts } = useStore();
-  const pizzas = products.filter((p) => p.category === 'pizza' && p.active);
+  const products = useStore(s => s.products);
+  const addToCart = useStore(s => s.addToCart);
+  const borders = useStore(s => s.borders);
+  const freeBorderRules = useStore(s => s.freeBorderRules);
+  const freeSodaRules = useStore(s => s.freeSodaRules);
+  const sodaProducts = useStore(s => s.sodaProducts);
+  const pizzas = useMemo(() => products.filter((p) => p.category === 'pizza' && p.active), [products]);
 
   const [size, setSize] = useState<PizzaSize>('G');
   const [flavor1Id, setFlavor1Id] = useState(initialFlavorId || '');
@@ -81,11 +86,13 @@ export function PizzaBuilder({ open, onClose, initialFlavorId }: PizzaBuilderPro
     return total;
   };
 
-  const filteredPizzas = categoryFilter === 'all' || categoryFilter === 'bordas'
-    ? pizzas
-    : pizzas.filter((p) => p.pizzaType === categoryFilter);
+  const filteredPizzas = useMemo(() => (
+    categoryFilter === 'all' || categoryFilter === 'bordas'
+      ? pizzas
+      : pizzas.filter((p) => p.pizzaType === categoryFilter)
+  ), [categoryFilter, pizzas]);
 
-  const activeBorders = borders.filter(b => b.active);
+  const activeBorders = useMemo(() => borders.filter(b => b.active), [borders]);
 
   const handleAdd = () => {
     if (!flavor1 || isAdding) return;

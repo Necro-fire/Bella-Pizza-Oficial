@@ -17,15 +17,15 @@ export type Database = {
       app_settings: {
         Row: {
           key: string
-          value: Json | null
+          value: Json
         }
         Insert: {
           key: string
-          value?: Json | null
+          value: Json
         }
         Update: {
           key?: string
-          value?: Json | null
+          value?: Json
         }
         Relationships: []
       }
@@ -137,6 +137,7 @@ export type Database = {
           id: string
           informed_amount: number | null
           initial_amount: number | null
+          last_sale_code: number
           opened_at: string | null
         }
         Insert: {
@@ -145,6 +146,7 @@ export type Database = {
           id?: string
           informed_amount?: number | null
           initial_amount?: number | null
+          last_sale_code?: number
           opened_at?: string | null
         }
         Update: {
@@ -153,6 +155,7 @@ export type Database = {
           id?: string
           informed_amount?: number | null
           initial_amount?: number | null
+          last_sale_code?: number
           opened_at?: string | null
         }
         Relationships: []
@@ -397,7 +400,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      generate_sale_code: { Args: never; Returns: string }
+      generate_sale_code:
+        | { Args: never; Returns: string }
+        | { Args: { _register_id: string }; Returns: string }
+      reset_sale_code_counter: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

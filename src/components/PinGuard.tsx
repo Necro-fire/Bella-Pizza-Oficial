@@ -24,9 +24,9 @@ export function PinGuard({ children, title = 'Área Protegida' }: PinGuardProps)
     setPin(prev => prev.slice(0, -1));
   }, []);
 
-  const confirm = useCallback(async () => {
+  const confirm = useCallback(() => {
     if (pin.length === 0) return;
-    if (await unlockPin(pin)) {
+    if (unlockPin(pin)) {
       toast.success('PIN desbloqueado');
     } else {
       setError(true);
