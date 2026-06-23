@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { ProductGrid } from '@/components/pdv/ProductGrid';
 import { Cart } from '@/components/pdv/Cart';
 import { PizzaBuilder } from '@/components/pdv/PizzaBuilder';
@@ -9,7 +9,9 @@ import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 
 export default function PDV() {
-  const { cashRegister, cart, openRegister } = useStore();
+  const cashRegister = useStore(s => s.cashRegister);
+  const cartCount = useStore(s => s.cart.length);
+  const openRegister = useStore(s => s.openRegister);
   const [pizzaBuilderOpen, setPizzaBuilderOpen] = useState(false);
   const [selectedPizzaId, setSelectedPizzaId] = useState<string | undefined>();
   const [showOpenDialog, setShowOpenDialog] = useState(false);
@@ -41,7 +43,7 @@ export default function PDV() {
   };
 
   // Show alert only when: cart has items AND register is closed
-  const showAlert = !isOpen && cart.length > 0;
+  const showAlert = !isOpen && cartCount > 0;
 
   return (
     <div className="flex gap-4 p-4 h-[calc(100vh-3.5rem)] overflow-hidden relative">
