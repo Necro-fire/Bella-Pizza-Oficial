@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -8,12 +8,15 @@ import { LoginPage } from "@/components/auth/LoginPage";
 import { useAuthStore } from "@/store/authStore";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/integrations/supabase/client";
-import PDV from "./pages/PDV";
-import Dashboard from "./pages/Dashboard";
-import Produtos from "./pages/Produtos";
-import Caixa from "./pages/Caixa";
-import Vendas from "./pages/Vendas";
-import NotFound from "./pages/NotFound";
+
+// Route-level code splitting: each page is loaded on demand, so the initial
+// bundle (PDV / login) parses and renders faster.
+const PDV = lazy(() => import("./pages/PDV"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Produtos = lazy(() => import("./pages/Produtos"));
+const Caixa = lazy(() => import("./pages/Caixa"));
+const Vendas = lazy(() => import("./pages/Vendas"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
