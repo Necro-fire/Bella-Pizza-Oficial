@@ -69,14 +69,20 @@ function AuthenticatedApp() {
       <div className="flex flex-col h-screen">
         <TopNav />
         <div className="flex-1 overflow-auto">
-          <Routes>
-            <Route path="/" element={<PDV />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/produtos" element={<Produtos />} />
-            <Route path="/caixa" element={<Caixa />} />
-            <Route path="/vendas" element={<Vendas />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          }>
+            <Routes>
+              <Route path="/" element={<PDV />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/produtos" element={<Produtos />} />
+              <Route path="/caixa" element={<Caixa />} />
+              <Route path="/vendas" element={<Vendas />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </div>
       </div>
     </BrowserRouter>
