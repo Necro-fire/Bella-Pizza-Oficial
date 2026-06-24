@@ -397,7 +397,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      generate_sale_code: { Args: never; Returns: string }
+      generate_sale_code:
+        | { Args: never; Returns: string }
+        | { Args: { _register_id: string }; Returns: string }
     }
     Enums: {
       [_ in never]: never

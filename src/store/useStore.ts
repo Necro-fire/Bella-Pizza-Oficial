@@ -114,6 +114,7 @@ export const useStore = create<AppState>()((set, get) => ({
     // Only show loading spinner on initial load, not on realtime refetches
     const isInitial = get().loading;
     if (isInitial) set({ loading: true });
+
     const [
       { data: productsData },
       { data: bordersData },
@@ -136,110 +137,89 @@ export const useStore = create<AppState>()((set, get) => ({
       supabase.from('cash_registers').select('*').not('closed_at', 'is', null).order('closed_at', { ascending: false }).limit(50),
     ]);
 
-    // Get open register with its movements and sales
-    let cashRegister: CashRegister | null = null;
-    if (registersData && registersData.length > 0) {
-      const reg = registersData[0];
-      const [{ data: entries }, { data: exits }, { data: regSales }] = await Promise.all([
-        supabase.from('cash_movements').select('*').eq('register_id', reg.id).in('type', ['entry', 'reforco']).order('created_at'),
-        supabase.from('cash_movements').select('*').eq('register_id', reg.id).in('type', ['exit', 'sangria']).order('created_at'),
-        supabase.from('sales').select('*').eq('register_id', reg.id).order('created_at'),
-      ]);
+    const openReg = registersData && registersData.length > 0 ? registersData[0] : null;
+    const closedRegs = closedRegistersData || [];
+    const allRegIds = [
+      ...(openReg ? [openReg.id] : []),
+      ...closedRegs.map(r => r.id),
+    ];
 
-      const mapMovement = (m: any): CashMovement => ({
-        id: m.id, type: m.type, amount: Number(m.amount), description: m.description || '',
-        paymentMethod: m.payment_method, date: m.created_at, origin: m.origin as 'manual' | 'pdv',
-      });
+    // Batched fetches for ALL registers at once — avoids the previous N+1 loop
+    // that ran 3-4 sequential queries per register (200+ round-trips).
+    const [{ data: movementsData }, { data: regSalesData }] = await Promise.all([
+      allRegIds.length > 0
+        ? supabase.from('cash_movements').select('*').in('register_id', allRegIds).order('created_at')
+        : Promise.resolve({ data: [] as any[] }),
+      allRegIds.length > 0
+        ? supabase.from('sales').select('*').in('register_id', allRegIds).order('created_at')
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
 
-      const regSaleIds = (regSales || []).map(s => s.id);
-      const { data: saleItemsData } = regSaleIds.length > 0
-        ? await supabase.from('sale_items').select('*').in('sale_id', regSaleIds)
-        : { data: [] };
+    // Sale items are fetched ONLY for sales that actually render them:
+    //  - the global recent sales list (Vendas page detail / receipt)
+    //  - the current OPEN register's sales (current shift in Caixa)
+    // Closed-register history only shows totals, so we skip its items entirely.
+    const openRegSaleIds = openReg
+      ? (regSalesData || []).filter(s => s.register_id === openReg.id).map(s => s.id)
+      : [];
+    const itemSaleIds = Array.from(new Set([
+      ...(salesData || []).map(s => s.id),
+      ...openRegSaleIds,
+    ]));
+    const { data: saleItemsData } = itemSaleIds.length > 0
+      ? await supabase.from('sale_items').select('*').in('sale_id', itemSaleIds)
+      : { data: [] as any[] };
 
-      const mapSale = (s: any): Sale => ({
-        id: s.id, code: s.code, total: Number(s.total), change: Number(s.change_amount) || 0,
-        date: s.created_at, customerName: s.customer_name || '', customerContact: s.customer_contact || '',
-        observations: s.observations || [], cancelled: s.cancelled || false, cancelledAt: s.cancelled_at,
-        deliveryMode: s.delivery_mode, deliveryAddress: s.delivery_address as any,
-        deliveryFee: Number(s.delivery_fee) || 0, payments: (s.payments || []) as unknown as PaymentSplit[],
-        items: (saleItemsData || []).filter(si => si.sale_id === s.id).map(si => ({
-          id: si.id, product: si.product_data as any, quantity: si.quantity || 1,
-          observations: si.observations || [], pizzaSize: si.pizza_size as PizzaSize | undefined,
-          secondFlavor: si.second_flavor as any, calculatedPrice: Number(si.calculated_price),
-          border: si.border_data as any, borderFree: si.border_free || false, freeSoda: si.free_soda as any,
-        })),
-      });
-
-      cashRegister = {
-        id: reg.id, openedAt: reg.opened_at!, closedAt: reg.closed_at || undefined,
-        initialAmount: Number(reg.initial_amount) || 0, informedAmount: reg.informed_amount ? Number(reg.informed_amount) : undefined,
-        sales: (regSales || []).map(mapSale),
-        entries: (entries || []).map(mapMovement),
-        exits: (exits || []).map(mapMovement),
-      };
+    // Group once into O(1) lookup maps (replaces O(n^2) filter-inside-map).
+    const itemsBySale = new Map<string, any[]>();
+    for (const si of (saleItemsData || [])) {
+      const arr = itemsBySale.get(si.sale_id);
+      if (arr) arr.push(si); else itemsBySale.set(si.sale_id, [si]);
+    }
+    const movementsByReg = new Map<string, any[]>();
+    for (const m of (movementsData || [])) {
+      const arr = movementsByReg.get(m.register_id);
+      if (arr) arr.push(m); else movementsByReg.set(m.register_id, [m]);
+    }
+    const salesByReg = new Map<string, any[]>();
+    for (const s of (regSalesData || [])) {
+      const arr = salesByReg.get(s.register_id);
+      if (arr) arr.push(s); else salesByReg.set(s.register_id, [s]);
     }
 
-    // Build cash history from closed registers
-    const cashHistory: CashRegister[] = [];
-    if (closedRegistersData && closedRegistersData.length > 0) {
-      for (const reg of closedRegistersData) {
-        const [{ data: entries }, { data: exits }, { data: regSales }] = await Promise.all([
-          supabase.from('cash_movements').select('*').eq('register_id', reg.id).in('type', ['entry', 'reforco']).order('created_at'),
-          supabase.from('cash_movements').select('*').eq('register_id', reg.id).in('type', ['exit', 'sangria']).order('created_at'),
-          supabase.from('sales').select('*').eq('register_id', reg.id).order('created_at'),
-        ]);
-
-        const mapMovement = (m: any): CashMovement => ({
-          id: m.id, type: m.type, amount: Number(m.amount), description: m.description || '',
-          paymentMethod: m.payment_method, date: m.created_at, origin: m.origin as 'manual' | 'pdv',
-        });
-
-        const regSaleIds = (regSales || []).map(s => s.id);
-        const { data: saleItemsData } = regSaleIds.length > 0
-          ? await supabase.from('sale_items').select('*').in('sale_id', regSaleIds)
-          : { data: [] };
-
-        cashHistory.push({
-          id: reg.id, openedAt: reg.opened_at!, closedAt: reg.closed_at || undefined,
-          initialAmount: Number(reg.initial_amount) || 0, informedAmount: reg.informed_amount ? Number(reg.informed_amount) : undefined,
-          sales: (regSales || []).map(s => ({
-            id: s.id, code: s.code, total: Number(s.total), change: Number(s.change_amount) || 0,
-            date: s.created_at, customerName: s.customer_name || '', customerContact: s.customer_contact || '',
-            observations: s.observations || [], cancelled: s.cancelled || false, cancelledAt: s.cancelled_at,
-            deliveryMode: s.delivery_mode as any, deliveryAddress: s.delivery_address as any,
-            deliveryFee: Number(s.delivery_fee) || 0, payments: (s.payments || []) as unknown as PaymentSplit[],
-            items: (saleItemsData || []).filter(si => si.sale_id === s.id).map(si => ({
-              id: si.id, product: si.product_data as any, quantity: si.quantity || 1,
-              observations: si.observations || [], pizzaSize: si.pizza_size as PizzaSize | undefined,
-              secondFlavor: si.second_flavor as any, calculatedPrice: Number(si.calculated_price),
-              border: si.border_data as any, borderFree: si.border_free || false, freeSoda: si.free_soda as any,
-            })),
-          })),
-          entries: (entries || []).map(mapMovement),
-          exits: (exits || []).map(mapMovement),
-        });
-      }
-    }
-
-    // Map sales (all)
-    const allSaleIds = (salesData || []).map(s => s.id);
-    const { data: allSaleItems } = allSaleIds.length > 0
-      ? await supabase.from('sale_items').select('*').in('sale_id', allSaleIds)
-      : { data: [] };
-
-    const mappedSales: Sale[] = (salesData || []).map(s => ({
+    const mapItem = (si: any): CartItem => ({
+      id: si.id, product: si.product_data as any, quantity: si.quantity || 1,
+      observations: si.observations || [], pizzaSize: si.pizza_size as PizzaSize | undefined,
+      secondFlavor: si.second_flavor as any, calculatedPrice: Number(si.calculated_price),
+      border: si.border_data as any, borderFree: si.border_free || false, freeSoda: si.free_soda as any,
+    });
+    const mapMovement = (m: any): CashMovement => ({
+      id: m.id, type: m.type, amount: Number(m.amount), description: m.description || '',
+      paymentMethod: m.payment_method, date: m.created_at, origin: m.origin as 'manual' | 'pdv',
+    });
+    const mapSale = (s: any, withItems: boolean): Sale => ({
       id: s.id, code: s.code, total: Number(s.total), change: Number(s.change_amount) || 0,
       date: s.created_at, customerName: s.customer_name || '', customerContact: s.customer_contact || '',
       observations: s.observations || [], cancelled: s.cancelled || false, cancelledAt: s.cancelled_at,
       deliveryMode: s.delivery_mode as any, deliveryAddress: s.delivery_address as any,
       deliveryFee: Number(s.delivery_fee) || 0, payments: (s.payments || []) as unknown as PaymentSplit[],
-      items: (allSaleItems || []).filter(si => si.sale_id === s.id).map(si => ({
-        id: si.id, product: si.product_data as any, quantity: si.quantity || 1,
-        observations: si.observations || [], pizzaSize: si.pizza_size as PizzaSize | undefined,
-        secondFlavor: si.second_flavor as any, calculatedPrice: Number(si.calculated_price),
-        border: si.border_data as any, borderFree: si.border_free || false, freeSoda: si.free_soda as any,
-      })),
-    }));
+      items: withItems ? (itemsBySale.get(s.id) || []).map(mapItem) : [],
+    });
+    const buildRegister = (reg: any, withItems: boolean): CashRegister => {
+      const movs = movementsByReg.get(reg.id) || [];
+      return {
+        id: reg.id, openedAt: reg.opened_at!, closedAt: reg.closed_at || undefined,
+        initialAmount: Number(reg.initial_amount) || 0,
+        informedAmount: reg.informed_amount ? Number(reg.informed_amount) : undefined,
+        sales: (salesByReg.get(reg.id) || []).map(s => mapSale(s, withItems)),
+        entries: movs.filter(m => m.type === 'entry' || m.type === 'reforco').map(mapMovement),
+        exits: movs.filter(m => m.type === 'exit' || m.type === 'sangria').map(mapMovement),
+      };
+    };
+
+    const cashRegister = openReg ? buildRegister(openReg, true) : null;
+    const cashHistory = closedRegs.map(reg => buildRegister(reg, false));
+    const mappedSales: Sale[] = (salesData || []).map(s => mapSale(s, true));
 
     set({
       products: (productsData || []).map(mapProduct),
@@ -250,7 +230,6 @@ export const useStore = create<AppState>()((set, get) => ({
       sales: mappedSales,
       cashRegister,
       cashHistory,
-      // nextSaleCode removed - generated in database
       auditLogs: (auditData || []).map(a => ({
         id: a.id, action: a.action, details: a.details || '', user: a.user_name || 'system', date: a.created_at!,
       })),
@@ -342,8 +321,9 @@ export const useStore = create<AppState>()((set, get) => ({
     const total = subtotal + (deliveryFee || 0);
     const registerId = state.cashRegister?.id || null;
 
-    // Generate code atomically in the backend
-    const { data: codeData, error: codeError } = await (supabase.rpc as any)('generate_sale_code');
+    // Generate code atomically in the backend, scoped to the current register
+    // so each cash register restarts its own displayed sequence (000001, ...).
+    const { data: codeData, error: codeError } = await (supabase.rpc as any)('generate_sale_code', { _register_id: registerId });
     if (codeError || !codeData) throw new Error('Falha ao gerar código da venda');
     const code = codeData as string;
 

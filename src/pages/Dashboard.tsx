@@ -74,6 +74,13 @@ export default function Dashboard() {
         return;
       }
 
+      // Group items once into an O(1) lookup map (avoids O(n^2) filter-in-map).
+      const itemsBySale = new Map<string, any[]>();
+      for (const item of (saleItemsRows || [])) {
+        const arr = itemsBySale.get(item.sale_id);
+        if (arr) arr.push(item); else itemsBySale.set(item.sale_id, [item]);
+      }
+
       const mappedSales: Sale[] = (salesRows || []).map((sale) => ({
         id: sale.id,
         code: sale.code,
@@ -89,8 +96,7 @@ export default function Dashboard() {
         deliveryAddress: sale.delivery_address as any,
         deliveryFee: Number(sale.delivery_fee) || 0,
         payments: (sale.payments || []) as any,
-        items: (saleItemsRows || [])
-          .filter((item) => item.sale_id === sale.id)
+        items: (itemsBySale.get(sale.id) || [])
           .map((item) => ({
             id: item.id,
             product: item.product_data as any,
