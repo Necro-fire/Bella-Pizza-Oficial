@@ -321,8 +321,9 @@ export const useStore = create<AppState>()((set, get) => ({
     const total = subtotal + (deliveryFee || 0);
     const registerId = state.cashRegister?.id || null;
 
-    // Generate code atomically in the backend
-    const { data: codeData, error: codeError } = await (supabase.rpc as any)('generate_sale_code');
+    // Generate code atomically in the backend, scoped to the current register
+    // so each cash register restarts its own displayed sequence (000001, ...).
+    const { data: codeData, error: codeError } = await (supabase.rpc as any)('generate_sale_code', { _register_id: registerId });
     if (codeError || !codeData) throw new Error('Falha ao gerar código da venda');
     const code = codeData as string;
 
