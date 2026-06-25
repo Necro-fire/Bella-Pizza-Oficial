@@ -124,140 +124,145 @@ export const useStore = create<AppState>()((set, get) => ({
     const isInitial = get().loading;
     if (isInitial) set({ loading: true });
 
-    const [
-      { data: productsData },
-      { data: bordersData },
-      { data: sodaData },
-      { data: fbrData },
-      { data: fsrData },
-      { data: salesData },
-      { data: auditData },
-      { data: registersData },
-      { data: closedRegistersData },
-    ] = await Promise.all([
-      supabase.from('products').select('*').order('name'),
-      supabase.from('borders').select('*').order('name'),
-      supabase.from('soda_products').select('*').order('name'),
-      supabase.from('free_border_rules').select('*'),
-      supabase.from('free_soda_rules').select('*'),
-      supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(500),
-      supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(500),
-      supabase.from('cash_registers').select('*').is('closed_at', null).limit(1),
-      supabase.from('cash_registers').select('*').not('closed_at', 'is', null).order('closed_at', { ascending: false }).limit(50),
-    ]);
+    try {
+      const [
+        { data: productsData },
+        { data: bordersData },
+        { data: sodaData },
+        { data: fbrData },
+        { data: fsrData },
+        { data: salesData },
+        { data: auditData },
+        { data: registersData },
+        { data: closedRegistersData },
+      ] = await Promise.all([
+        supabase.from('products').select('*').order('name'),
+        supabase.from('borders').select('*').order('name'),
+        supabase.from('soda_products').select('*').order('name'),
+        supabase.from('free_border_rules').select('*'),
+        supabase.from('free_soda_rules').select('*'),
+        supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(500),
+        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(500),
+        supabase.from('cash_registers').select('*').is('closed_at', null).limit(1),
+        supabase.from('cash_registers').select('*').not('closed_at', 'is', null).order('closed_at', { ascending: false }).limit(50),
+      ]);
 
-    const openReg = registersData && registersData.length > 0 ? registersData[0] : null;
-    const closedRegs = closedRegistersData || [];
-    const allRegIds = [
-      ...(openReg ? [openReg.id] : []),
-      ...closedRegs.map(r => r.id),
-    ];
+      const openReg = registersData && registersData.length > 0 ? registersData[0] : null;
+      const closedRegs = closedRegistersData || [];
+      const allRegIds = [
+        ...(openReg ? [openReg.id] : []),
+        ...closedRegs.map(r => r.id),
+      ];
 
-    // Batched fetches for ALL registers at once — avoids the previous N+1 loop
-    // that ran 3-4 sequential queries per register (200+ round-trips).
-    const [{ data: movementsData }] = await Promise.all([
-      allRegIds.length > 0
-        ? supabase.from('cash_movements').select('*').in('register_id', allRegIds).order('created_at')
-        : Promise.resolve({ data: [] as any[] }),
-    ]);
+      // Batched fetches for ALL registers at once — avoids the previous N+1 loop
+      // that ran 3-4 sequential queries per register (200+ round-trips).
+      const [{ data: movementsData }] = await Promise.all([
+        allRegIds.length > 0
+          ? supabase.from('cash_movements').select('*').in('register_id', allRegIds).order('created_at')
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
 
-    const regSalesData = (salesData || []).filter((sale) => {
-      const linkedRegisterId = sale.register_id ?? null;
-      return linkedRegisterId === null || allRegIds.includes(linkedRegisterId);
-    });
+      const regSalesData = (salesData || []).filter((sale) => {
+        const linkedRegisterId = sale.register_id ?? null;
+        return linkedRegisterId === null || allRegIds.includes(linkedRegisterId);
+      });
 
-    // Sale items are fetched ONLY for sales that actually render them:
-    //  - the global recent sales list (Vendas page detail / receipt)
-    //  - the current OPEN register's sales (current shift in Caixa)
-    // Closed-register history only shows totals, so we skip its items entirely.
-    const openRegSaleIds = openReg
-      ? resolveRegisterSales(openReg.id, regSalesData || [], true).map(s => s.id)
-      : [];
-    const itemSaleIds = Array.from(new Set([
-      ...(salesData || []).map(s => s.id),
-      ...openRegSaleIds,
-    ]));
-    const { data: saleItemsData } = itemSaleIds.length > 0
-      ? await supabase.from('sale_items').select('*').in('sale_id', itemSaleIds)
-      : { data: [] as any[] };
+      // Sale items are fetched ONLY for sales that actually render them:
+      //  - the global recent sales list (Vendas page detail / receipt)
+      //  - the current OPEN register's sales (current shift in Caixa)
+      // Closed-register history only shows totals, so we skip its items entirely.
+      const openRegSaleIds = openReg
+        ? resolveRegisterSales(openReg.id, regSalesData || [], true).map(s => s.id)
+        : [];
+      const itemSaleIds = Array.from(new Set([
+        ...(salesData || []).map(s => s.id),
+        ...openRegSaleIds,
+      ]));
+      const { data: saleItemsData } = itemSaleIds.length > 0
+        ? await supabase.from('sale_items').select('*').in('sale_id', itemSaleIds)
+        : { data: [] as any[] };
 
-    // Group once into O(1) lookup maps (replaces O(n^2) filter-inside-map).
-    const itemsBySale = new Map<string, any[]>();
-    for (const si of (saleItemsData || [])) {
-      const arr = itemsBySale.get(si.sale_id);
-      if (arr) arr.push(si); else itemsBySale.set(si.sale_id, [si]);
-    }
-    const movementsByReg = new Map<string, any[]>();
-    for (const m of (movementsData || [])) {
-      const arr = movementsByReg.get(m.register_id);
-      if (arr) arr.push(m); else movementsByReg.set(m.register_id, [m]);
-    }
-    const salesByReg = new Map<string, any[]>();
-    for (const s of (regSalesData || [])) {
-      const linkedRegisterId = s.register_id ?? null;
-      if (linkedRegisterId) {
-        const arr = salesByReg.get(linkedRegisterId);
-        if (arr) arr.push(s); else salesByReg.set(linkedRegisterId, [s]);
+      // Group once into O(1) lookup maps (replaces O(n^2) filter-inside-map).
+      const itemsBySale = new Map<string, any[]>();
+      for (const si of (saleItemsData || [])) {
+        const arr = itemsBySale.get(si.sale_id);
+        if (arr) arr.push(si); else itemsBySale.set(si.sale_id, [si]);
       }
-    }
-
-    if (openReg) {
-      const unlinkedSales = (regSalesData || []).filter(s => (s.register_id ?? null) === null);
-      if (unlinkedSales.length > 0) {
-        const existing = salesByReg.get(openReg.id) || [];
-        salesByReg.set(openReg.id, [...existing, ...unlinkedSales]);
+      const movementsByReg = new Map<string, any[]>();
+      for (const m of (movementsData || [])) {
+        const arr = movementsByReg.get(m.register_id);
+        if (arr) arr.push(m); else movementsByReg.set(m.register_id, [m]);
       }
-    }
+      const salesByReg = new Map<string, any[]>();
+      for (const s of (regSalesData || [])) {
+        const linkedRegisterId = s.register_id ?? null;
+        if (linkedRegisterId) {
+          const arr = salesByReg.get(linkedRegisterId);
+          if (arr) arr.push(s); else salesByReg.set(linkedRegisterId, [s]);
+        }
+      }
 
-    const mapItem = (si: any): CartItem => ({
-      id: si.id, product: si.product_data as any, quantity: si.quantity || 1,
-      observations: si.observations || [], pizzaSize: si.pizza_size as PizzaSize | undefined,
-      secondFlavor: si.second_flavor as any, calculatedPrice: Number(si.calculated_price),
-      border: si.border_data as any, borderFree: si.border_free || false, freeSoda: si.free_soda as any,
-    });
-    const mapMovement = (m: any): CashMovement => ({
-      id: m.id, type: m.type, amount: Number(m.amount), description: m.description || '',
-      paymentMethod: m.payment_method, date: m.created_at, origin: m.origin as 'manual' | 'pdv',
-    });
-    const mapSale = (s: any, withItems: boolean): Sale => ({
-      id: s.id, code: s.code, total: Number(s.total), change: Number(s.change_amount) || 0,
-      date: s.created_at, customerName: s.customer_name || '', customerContact: s.customer_contact || '',
-      observations: s.observations || [], cancelled: s.cancelled || false, cancelledAt: s.cancelled_at,
-      deliveryMode: s.delivery_mode as any, deliveryAddress: s.delivery_address as any,
-      deliveryFee: Number(s.delivery_fee) || 0, payments: (s.payments || []) as unknown as PaymentSplit[],
-      items: withItems ? (itemsBySale.get(s.id) || []).map(mapItem) : [],
-    });
-    const buildRegister = (reg: any, withItems: boolean): CashRegister => {
-      const movs = movementsByReg.get(reg.id) || [];
-      const registerSales = resolveRegisterSales(reg.id, salesByReg.get(reg.id) || [], reg.id === openReg?.id);
-      return {
-        id: reg.id, openedAt: reg.opened_at!, closedAt: reg.closed_at || undefined,
-        initialAmount: Number(reg.initial_amount) || 0,
-        informedAmount: reg.informed_amount ? Number(reg.informed_amount) : undefined,
-        sales: registerSales.map(s => mapSale(s, withItems)),
-        entries: movs.filter(m => m.type === 'entry' || m.type === 'reforco').map(mapMovement),
-        exits: movs.filter(m => m.type === 'exit' || m.type === 'sangria').map(mapMovement),
+      if (openReg) {
+        const unlinkedSales = (regSalesData || []).filter(s => (s.register_id ?? null) === null);
+        if (unlinkedSales.length > 0) {
+          const existing = salesByReg.get(openReg.id) || [];
+          salesByReg.set(openReg.id, [...existing, ...unlinkedSales]);
+        }
+      }
+
+      const mapItem = (si: any): CartItem => ({
+        id: si.id, product: si.product_data as any, quantity: si.quantity || 1,
+        observations: si.observations || [], pizzaSize: si.pizza_size as PizzaSize | undefined,
+        secondFlavor: si.second_flavor as any, calculatedPrice: Number(si.calculated_price),
+        border: si.border_data as any, borderFree: si.border_free || false, freeSoda: si.free_soda as any,
+      });
+      const mapMovement = (m: any): CashMovement => ({
+        id: m.id, type: m.type, amount: Number(m.amount), description: m.description || '',
+        paymentMethod: m.payment_method, date: m.created_at, origin: m.origin as 'manual' | 'pdv',
+      });
+      const mapSale = (s: any, withItems: boolean): Sale => ({
+        id: s.id, code: s.code, total: Number(s.total), change: Number(s.change_amount) || 0,
+        date: s.created_at, customerName: s.customer_name || '', customerContact: s.customer_contact || '',
+        observations: s.observations || [], cancelled: s.cancelled || false, cancelledAt: s.cancelled_at,
+        deliveryMode: s.delivery_mode as any, deliveryAddress: s.delivery_address as any,
+        deliveryFee: Number(s.delivery_fee) || 0, payments: (s.payments || []) as unknown as PaymentSplit[],
+        items: withItems ? (itemsBySale.get(s.id) || []).map(mapItem) : [],
+      });
+      const buildRegister = (reg: any, withItems: boolean): CashRegister => {
+        const movs = movementsByReg.get(reg.id) || [];
+        const registerSales = resolveRegisterSales(reg.id, salesByReg.get(reg.id) || [], reg.id === openReg?.id);
+        return {
+          id: reg.id, openedAt: reg.opened_at!, closedAt: reg.closed_at || undefined,
+          initialAmount: Number(reg.initial_amount) || 0,
+          informedAmount: reg.informed_amount ? Number(reg.informed_amount) : undefined,
+          sales: registerSales.map(s => mapSale(s, withItems)),
+          entries: movs.filter(m => m.type === 'entry' || m.type === 'reforco').map(mapMovement),
+          exits: movs.filter(m => m.type === 'exit' || m.type === 'sangria').map(mapMovement),
+        };
       };
-    };
 
-    const cashRegister = openReg ? buildRegister(openReg, true) : null;
-    const cashHistory = closedRegs.map(reg => buildRegister(reg, false));
-    const mappedSales: Sale[] = (salesData || []).map(s => mapSale(s, true));
+      const cashRegister = openReg ? buildRegister(openReg, true) : null;
+      const cashHistory = closedRegs.map(reg => buildRegister(reg, false));
+      const mappedSales: Sale[] = (salesData || []).map(s => mapSale(s, true));
 
-    set({
-      products: (productsData || []).map(mapProduct),
-      borders: (bordersData || []).map(mapBorder),
-      sodaProducts: (sodaData || []).map(mapSodaProduct),
-      freeBorderRules: (fbrData || []).map(r => ({ size: r.size as PizzaSize, enabled: r.enabled ?? false })),
-      freeSodaRules: (fsrData || []).map(r => ({ size: r.size as PizzaSize, enabled: r.enabled ?? false })),
-      sales: mappedSales,
-      cashRegister,
-      cashHistory,
-      auditLogs: (auditData || []).map(a => ({
-        id: a.id, action: a.action, details: a.details || '', user: a.user_name || 'system', date: a.created_at!,
-      })),
-      loading: false,
-    });
+      set({
+        products: (productsData || []).map(mapProduct),
+        borders: (bordersData || []).map(mapBorder),
+        sodaProducts: (sodaData || []).map(mapSodaProduct),
+        freeBorderRules: (fbrData || []).map(r => ({ size: r.size as PizzaSize, enabled: r.enabled ?? false })),
+        freeSodaRules: (fsrData || []).map(r => ({ size: r.size as PizzaSize, enabled: r.enabled ?? false })),
+        sales: mappedSales,
+        cashRegister,
+        cashHistory,
+        auditLogs: (auditData || []).map(a => ({
+          id: a.id, action: a.action, details: a.details || '', user: a.user_name || 'system', date: a.created_at!,
+        })),
+        loading: false,
+      });
+    } catch (error) {
+      console.error('Failed to fetch app data', error);
+      set({ loading: false });
+    }
   },
 
   // ===== PRODUCTS =====

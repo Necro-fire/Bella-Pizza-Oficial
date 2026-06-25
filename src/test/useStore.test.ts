@@ -108,6 +108,18 @@ describe('useStore finalizeSale', () => {
     expect(state.cashRegister?.sales[0].total).toBe(30);
   });
 
+  it('resets loading state when the initial data fetch fails', async () => {
+    useStore.setState({ loading: true });
+    mockSupabase.from.mockImplementation(() => ({
+      select: () => {
+        throw new Error('db down');
+      },
+    }));
+
+    await expect(useStore.getState().fetchAll()).resolves.toBeUndefined();
+    expect(useStore.getState().loading).toBe(false);
+  });
+
   it('accumulates multiple sales in the open register and removes cancelled ones from the total', async () => {
     useStore.setState({
       cashRegister: {
