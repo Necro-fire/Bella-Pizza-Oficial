@@ -91,12 +91,26 @@ function AuthenticatedApp() {
 
 const App = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const initialized = useAuthStore((s) => s.initialized);
+  const initAuth = useAuthStore((s) => s.initAuth);
+
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
 
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Sonner position="bottom-right" />
-        {isAuthenticated ? <AuthenticatedApp /> : <LoginPage />}
+        {!initialized ? (
+          <div className="flex items-center justify-center h-screen">
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : isAuthenticated ? (
+          <AuthenticatedApp />
+        ) : (
+          <LoginPage />
+        )}
       </TooltipProvider>
     </QueryClientProvider>
   );
