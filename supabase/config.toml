@@ -1,1 +1,4 @@
 project_id = "rgvmzvhysduhtuntxjho"
+
+[functions.app-auth]
+verify_jwt = false
