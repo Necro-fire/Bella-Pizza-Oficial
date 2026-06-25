@@ -67,14 +67,14 @@ export function TopNav() {
     }
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error('Preencha todos os campos'); return;
     }
     if (newPassword !== confirmPassword) {
       toast.error('As senhas não coincidem'); return;
     }
-    if (changePassword(currentPassword, newPassword)) {
+    if (await changePassword(currentPassword, newPassword)) {
       toast.success('Senha alterada com sucesso');
       setShowSettings(false); resetFields();
     } else {
@@ -82,7 +82,7 @@ export function TopNav() {
     }
   };
 
-  const handleChangePin = () => {
+  const handleChangePin = async () => {
     if (!currentPin || !newPin || !confirmPin) {
       toast.error('Preencha todos os campos'); return;
     }
@@ -92,7 +92,7 @@ export function TopNav() {
     if (newPin !== confirmPin) {
       toast.error('Os PINs não coincidem'); return;
     }
-    if (changePin(currentPin, newPin)) {
+    if (await changePin(currentPin, newPin)) {
       toast.success('PIN alterado com sucesso');
       setShowSettings(false); resetFields();
     } else {
@@ -100,12 +100,12 @@ export function TopNav() {
     }
   };
 
-  const handleChangeCnpj = () => {
+  const handleChangeCnpj = async () => {
     const digits = newCnpj.replace(/\D/g, '');
     if (digits.length !== 14) {
       toast.error('CNPJ inválido'); return;
     }
-    setCnpj(newCnpj);
+    await setCnpj(newCnpj);
     toast.success('CNPJ alterado com sucesso');
     setShowSettings(false); resetFields();
   };
