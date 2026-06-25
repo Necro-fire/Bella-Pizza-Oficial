@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { maskCNPJ } from '@/lib/format';
 import { Input } from '@/components/ui/input';
@@ -9,27 +9,32 @@ import { toast } from 'sonner';
 type View = 'login' | 'forgot-password' | 'forgot-pin';
 
 export function LoginPage() {
-  const { login, recoverPasswordWithPin, recoverPinWithCredentials, loadFromDb } = useAuthStore();
+  const { login, recoverPasswordWithPin, recoverPinWithCredentials } = useAuthStore();
   const [view, setView] = useState<View>('login');
   const [cnpj, setCnpj] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
-
-  useEffect(() => { loadFromDb(); }, [loadFromDb]);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await login(cnpj, password);
-    if (success) {
-      toast.success('Login realizado!');
-    } else {
-      toast.error('CNPJ ou senha incorretos');
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const success = await login(cnpj, password);
+      if (success) {
+        toast.success('Login realizado!');
+      } else {
+        toast.error('CNPJ ou senha incorretos');
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleRecoverPassword = (e: React.FormEvent) => {
+  const handleRecoverPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = recoverPasswordWithPin(pin);
+    const result = await recoverPasswordWithPin(pin);
     if (result) {
       toast.success(`Sua senha é: ${result}`);
       setView('login');
@@ -39,9 +44,9 @@ export function LoginPage() {
     }
   };
 
-  const handleRecoverPin = (e: React.FormEvent) => {
+  const handleRecoverPin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = recoverPinWithCredentials(cnpj, password);
+    const result = await recoverPinWithCredentials(cnpj, password);
     if (result) {
       toast.success(`Seu PIN é: ${result}`);
       setView('login');
