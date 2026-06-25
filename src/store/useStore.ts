@@ -37,6 +37,15 @@ const mapSodaProduct = (row: any): SodaProduct => ({
   freeSizes: (row.free_sizes || []) as PizzaSize[],
 });
 
+export function resolveRegisterSales<T extends { register_id?: string | null }>(registerId: string | null | undefined, salesRows: T[] = [], includeUnlinked = false): T[] {
+  if (!registerId) return [];
+
+  return salesRows.filter((sale) => {
+    const linkedRegisterId = sale.register_id ?? null;
+    return linkedRegisterId === registerId || (includeUnlinked && linkedRegisterId === null);
+  });
+}
+
 interface AppState {
   // Data from DB
   products: Product[];
@@ -146,21 +155,23 @@ export const useStore = create<AppState>()((set, get) => ({
 
     // Batched fetches for ALL registers at once — avoids the previous N+1 loop
     // that ran 3-4 sequential queries per register (200+ round-trips).
-    const [{ data: movementsData }, { data: regSalesData }] = await Promise.all([
+    const [{ data: movementsData }] = await Promise.all([
       allRegIds.length > 0
         ? supabase.from('cash_movements').select('*').in('register_id', allRegIds).order('created_at')
         : Promise.resolve({ data: [] as any[] }),
-      allRegIds.length > 0
-        ? supabase.from('sales').select('*').in('register_id', allRegIds).order('created_at')
-        : Promise.resolve({ data: [] as any[] }),
     ]);
+
+    const regSalesData = (salesData || []).filter((sale) => {
+      const linkedRegisterId = sale.register_id ?? null;
+      return linkedRegisterId === null || allRegIds.includes(linkedRegisterId);
+    });
 
     // Sale items are fetched ONLY for sales that actually render them:
     //  - the global recent sales list (Vendas page detail / receipt)
     //  - the current OPEN register's sales (current shift in Caixa)
     // Closed-register history only shows totals, so we skip its items entirely.
     const openRegSaleIds = openReg
-      ? (regSalesData || []).filter(s => s.register_id === openReg.id).map(s => s.id)
+      ? resolveRegisterSales(openReg.id, regSalesData || [], true).map(s => s.id)
       : [];
     const itemSaleIds = Array.from(new Set([
       ...(salesData || []).map(s => s.id),
@@ -183,8 +194,19 @@ export const useStore = create<AppState>()((set, get) => ({
     }
     const salesByReg = new Map<string, any[]>();
     for (const s of (regSalesData || [])) {
-      const arr = salesByReg.get(s.register_id);
-      if (arr) arr.push(s); else salesByReg.set(s.register_id, [s]);
+      const linkedRegisterId = s.register_id ?? null;
+      if (linkedRegisterId) {
+        const arr = salesByReg.get(linkedRegisterId);
+        if (arr) arr.push(s); else salesByReg.set(linkedRegisterId, [s]);
+      }
+    }
+
+    if (openReg) {
+      const unlinkedSales = (regSalesData || []).filter(s => (s.register_id ?? null) === null);
+      if (unlinkedSales.length > 0) {
+        const existing = salesByReg.get(openReg.id) || [];
+        salesByReg.set(openReg.id, [...existing, ...unlinkedSales]);
+      }
     }
 
     const mapItem = (si: any): CartItem => ({
@@ -207,11 +229,12 @@ export const useStore = create<AppState>()((set, get) => ({
     });
     const buildRegister = (reg: any, withItems: boolean): CashRegister => {
       const movs = movementsByReg.get(reg.id) || [];
+      const registerSales = resolveRegisterSales(reg.id, salesByReg.get(reg.id) || [], reg.id === openReg?.id);
       return {
         id: reg.id, openedAt: reg.opened_at!, closedAt: reg.closed_at || undefined,
         initialAmount: Number(reg.initial_amount) || 0,
         informedAmount: reg.informed_amount ? Number(reg.informed_amount) : undefined,
-        sales: (salesByReg.get(reg.id) || []).map(s => mapSale(s, withItems)),
+        sales: registerSales.map(s => mapSale(s, withItems)),
         entries: movs.filter(m => m.type === 'entry' || m.type === 'reforco').map(mapMovement),
         exits: movs.filter(m => m.type === 'exit' || m.type === 'sangria').map(mapMovement),
       };
@@ -319,7 +342,21 @@ export const useStore = create<AppState>()((set, get) => ({
     const state = get();
     const subtotal = state.cart.reduce((sum, i) => sum + i.calculatedPrice * i.quantity, 0);
     const total = subtotal + (deliveryFee || 0);
-    const registerId = state.cashRegister?.id || null;
+
+    let registerId = state.cashRegister?.id || null;
+    if (!registerId) {
+      const { data: openRegistersData, error: openRegistersError } = await supabase
+        .from('cash_registers')
+        .select('id')
+        .is('closed_at', null)
+        .limit(1);
+
+      if (openRegistersError || !openRegistersData?.[0]?.id) {
+        throw new Error('Nenhum caixa aberto para registrar a venda');
+      }
+
+      registerId = openRegistersData[0].id as string;
+    }
 
     // Generate code atomically in the backend, scoped to the current register
     // so each cash register restarts its own displayed sequence (000001, ...).
@@ -327,15 +364,33 @@ export const useStore = create<AppState>()((set, get) => ({
     if (codeError || !codeData) throw new Error('Falha ao gerar código da venda');
     const code = codeData as string;
 
-    const { data: saleRow, error } = await supabase.from('sales').insert({
+    let saleRow: any = null;
+    let error: any = null;
+
+    ({ data: saleRow, error } = await supabase.from('sales').insert({
       code, register_id: registerId, total, change_amount: change,
       customer_name: customerName, customer_contact: customerContact,
       observations: observations || [], delivery_mode: deliveryMode || 'retirada',
       delivery_address: deliveryAddress as any, delivery_fee: deliveryFee || 0,
       payments: payments as any,
-    }).select().single();
+    }).select().single());
 
-    if (error || !saleRow) throw new Error('Failed to save sale');
+    if (error || !saleRow) {
+      if (registerId) {
+        const { data: fallbackSaleRow, error: fallbackError } = await supabase.from('sales').insert({
+          code, register_id: registerId, total, change_amount: change,
+          customer_name: customerName, customer_contact: customerContact,
+          observations: observations || [], delivery_mode: deliveryMode || 'retirada',
+          delivery_address: deliveryAddress as any, delivery_fee: deliveryFee || 0,
+          payments: payments as any,
+        }).select().single();
+
+        if (fallbackError || !fallbackSaleRow) throw new Error('Failed to save sale');
+        saleRow = fallbackSaleRow;
+      } else {
+        throw new Error('Failed to save sale');
+      }
+    }
 
     const itemsToInsert = state.cart.map(item => ({
       sale_id: saleRow.id,
@@ -357,11 +412,25 @@ export const useStore = create<AppState>()((set, get) => ({
       cancelled: false, deliveryMode, deliveryAddress, deliveryFee,
     };
 
-    set(s => ({
-      sales: [sale, ...s.sales],
-      cart: [],
-      cashRegister: s.cashRegister ? { ...s.cashRegister, sales: [...s.cashRegister.sales, sale] } : s.cashRegister,
-    }));
+    const openRegisterId = registerId;
+    set(s => {
+      const nextCashRegister = s.cashRegister
+        ? { ...s.cashRegister, sales: [...s.cashRegister.sales, sale] }
+        : (openRegisterId ? {
+            id: openRegisterId,
+            openedAt: new Date().toISOString(),
+            initialAmount: 0,
+            sales: [sale],
+            entries: [],
+            exits: [],
+          } : null);
+
+      return {
+        sales: [sale, ...s.sales],
+        cart: [],
+        cashRegister: nextCashRegister,
+      };
+    });
 
     get().addAuditLog('SALE', `Venda ${code} - Total: R$ ${total.toFixed(2)}`);
     return sale;
