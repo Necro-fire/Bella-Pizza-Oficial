@@ -397,6 +397,44 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_sale: {
+        Args: {
+          _change_amount: number
+          _customer_contact: string
+          _customer_name: string
+          _delivery_address: Json
+          _delivery_fee: number
+          _delivery_mode: string
+          _items: Json
+          _observations: string[]
+          _payments: Json
+          _register_id: string
+          _total: number
+        }
+        Returns: {
+          cancelled: boolean | null
+          cancelled_at: string | null
+          change_amount: number | null
+          code: string
+          created_at: string | null
+          customer_contact: string | null
+          customer_name: string | null
+          delivery_address: Json | null
+          delivery_fee: number | null
+          delivery_mode: string | null
+          id: string
+          observations: string[] | null
+          payments: Json
+          register_id: string | null
+          total: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "sales"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       generate_sale_code:
         | { Args: never; Returns: string }
         | { Args: { _register_id: string }; Returns: string }
