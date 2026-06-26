@@ -32,7 +32,22 @@ describe('useStore finalizeSale', () => {
       loading: false,
     });
 
-    mockSupabase.rpc.mockResolvedValue({ data: '000001', error: null });
+    mockSupabase.rpc.mockImplementation(async (fn: string, params: any) => {
+      if (fn === 'create_sale') {
+        saleSequence += 1;
+        return {
+          data: {
+            id: `sale-${saleSequence}`,
+            code: String(saleSequence).padStart(6, '0'),
+            created_at: '2024-01-01T00:00:00.000Z',
+            total: params?._total ?? 0,
+            register_id: params?._register_id ?? null,
+          },
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    });
     mockSupabase.from.mockImplementation((table: string) => {
       if (table === 'cash_registers') {
         return {
@@ -83,16 +98,14 @@ describe('useStore finalizeSale', () => {
   it('uses the active register from the database when the local cash register state is missing', async () => {
     await useStore.getState().finalizeSale([], 0, '', '', [], 'retirada', undefined, 0);
 
-    const salesInsert = mockSupabase.from.mock.results.find((result) => result.value?.insert)?.value;
-    const insertPayload = salesInsert.insert.mock.calls[0][0];
-
-    expect(insertPayload.register_id).toBe('reg-123');
+    const createCall = mockSupabase.rpc.mock.calls.find((call) => call[0] === 'create_sale');
+    expect(createCall?.[1]?._register_id).toBe('reg-123');
   });
 
   it('includes sales without register_id in the currently open register', () => {
     const rows = [{ id: 'sale-1', register_id: null }];
 
-    const result = resolveRegisterSales('reg-123', rows, 'reg-123');
+    const result = resolveRegisterSales('reg-123', rows, true);
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('sale-1');
