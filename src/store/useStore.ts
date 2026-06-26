@@ -363,53 +363,42 @@ export const useStore = create<AppState>()((set, get) => ({
       registerId = openRegistersData[0].id as string;
     }
 
-    // Generate code atomically in the backend, scoped to the current register
-    // so each cash register restarts its own displayed sequence (000001, ...).
-    const { data: codeData, error: codeError } = await (supabase.rpc as any)('generate_sale_code', { _register_id: registerId });
-    if (codeError || !codeData) throw new Error('Falha ao gerar código da venda');
-    const code = codeData as string;
+    // Persist the sale AND its items atomically in a single transaction.
+    // The backend assigns the per-register display code under an advisory lock
+    // (no race / no duplicate codes) and the sale's permanent UUID is the only
+    // key used for items, payments, history and reports.
+    const itemsPayload = state.cart.map(item => ({
+      product_data: item.product,
+      quantity: item.quantity,
+      observations: item.observations || [],
+      pizza_size: item.pizzaSize || null,
+      second_flavor: item.secondFlavor ?? null,
+      calculated_price: item.calculatedPrice,
+      border_data: item.border ?? null,
+      border_free: item.borderFree || false,
+      free_soda: item.freeSoda ?? null,
+    }));
 
-    let saleRow: any = null;
-    let error: any = null;
-
-    ({ data: saleRow, error } = await supabase.from('sales').insert({
-      code, register_id: registerId, total, change_amount: change,
-      customer_name: customerName, customer_contact: customerContact,
-      observations: observations || [], delivery_mode: deliveryMode || 'retirada',
-      delivery_address: deliveryAddress as any, delivery_fee: deliveryFee || 0,
-      payments: payments as any,
-    }).select().single());
+    const { data: saleRow, error } = await (supabase.rpc as any)('create_sale', {
+      _register_id: registerId,
+      _total: total,
+      _change_amount: change,
+      _customer_name: customerName,
+      _customer_contact: customerContact,
+      _observations: observations || [],
+      _delivery_mode: deliveryMode || 'retirada',
+      _delivery_address: (deliveryAddress as any) ?? null,
+      _delivery_fee: deliveryFee || 0,
+      _payments: payments as any,
+      _items: itemsPayload as any,
+    });
 
     if (error || !saleRow) {
-      if (registerId) {
-        const { data: fallbackSaleRow, error: fallbackError } = await supabase.from('sales').insert({
-          code, register_id: registerId, total, change_amount: change,
-          customer_name: customerName, customer_contact: customerContact,
-          observations: observations || [], delivery_mode: deliveryMode || 'retirada',
-          delivery_address: deliveryAddress as any, delivery_fee: deliveryFee || 0,
-          payments: payments as any,
-        }).select().single();
-
-        if (fallbackError || !fallbackSaleRow) throw new Error('Failed to save sale');
-        saleRow = fallbackSaleRow;
-      } else {
-        throw new Error('Failed to save sale');
-      }
+      console.error('Falha ao registrar venda', error);
+      throw new Error(error?.message || 'Falha ao registrar a venda');
     }
 
-    const itemsToInsert = state.cart.map(item => ({
-      sale_id: saleRow.id,
-      product_data: item.product as any,
-      quantity: item.quantity,
-      observations: item.observations,
-      pizza_size: item.pizzaSize || null,
-      second_flavor: item.secondFlavor as any || null,
-      calculated_price: item.calculatedPrice,
-      border_data: item.border as any || null,
-      border_free: item.borderFree || false,
-      free_soda: item.freeSoda as any || null,
-    }));
-    await supabase.from('sale_items').insert(itemsToInsert);
+    const code = saleRow.code as string;
 
     const sale: Sale = {
       id: saleRow.id, code, items: [...state.cart], payments, total, change,
