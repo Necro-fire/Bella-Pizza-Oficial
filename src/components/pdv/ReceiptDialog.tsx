@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Sale, PAYMENT_METHODS } from '@/types/pizzaria';
 import { formatCurrency } from '@/lib/format';
+import { PAPER_WIDTHS, PaperWidth, buildReceiptDocument, loadPaperWidth, savePaperWidth } from '@/lib/receipt-print';
 import { Printer, Eye, EyeOff } from 'lucide-react';
 import { useState } from 'react';
 
@@ -12,7 +13,7 @@ interface ReceiptDialogProps {
 }
 
 const COMPANY_NAME = 'Bella Pizza';
-const COMPANY_CNPJ = '61.157280/0001-30';
+const COMPANY_CNPJ = '61.157.280/0001-30';
 
 /** Remove all accents and special characters from text */
 const stripAccents = (text: string): string => {
@@ -51,6 +52,8 @@ const stripAccents = (text: string): string => {
 
 export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) {
   const [showPreview, setShowPreview] = useState(false);
+  const [paper, setPaper] = useState<PaperWidth>(loadPaperWidth);
+  const [previewHeight, setPreviewHeight] = useState(0);
 
   if (!sale) return null;
 
@@ -64,7 +67,8 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
   };
 
   const buildReceiptHTML = (): string => {
-    const SEP = '<div class="sep">----------------------------------------------</div>';
+    // Separators are CSS borders so they always match the paper width
+    const SEP = '<div class="sep"></div>';
     const SPACER = '<div class="spacer"></div>';
     const mainLines: string[] = [];
 
@@ -127,20 +131,20 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
         lines.push(`<tr><td>${item.quantity}</td><td>${label}</td><td class="right">${priceLabel}</td></tr>`);
 
         if (item.secondFlavor) {
-          lines.push(`<tr><td></td><td class="sub">/ ${stripAccents(item.secondFlavor.name)}</td><td></td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub">/ ${stripAccents(item.secondFlavor.name)}</td></tr>`);
         }
         if (item.border) {
           const bPrice = item.borderFree ? 'Gratis' : formatCurrency(item.border.price);
-          lines.push(`<tr><td></td><td class="sub">Borda: ${stripAccents(item.border.name)} (${bPrice})</td><td></td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub">Borda: ${stripAccents(item.border.name)} (${bPrice})</td></tr>`);
         }
         if (item.freeSoda) {
-          lines.push(`<tr><td></td><td class="sub">+ ${stripAccents(item.freeSoda.name)} Gratis</td><td></td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub">+ ${stripAccents(item.freeSoda.name)} Gratis</td></tr>`);
         }
         item.observations.forEach(obs => {
-          lines.push(`<tr><td></td><td class="sub obs">* ${stripAccents(obs)}</td><td></td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub obs">* ${stripAccents(obs)}</td></tr>`);
         });
         // Separator after every item
-        lines.push(`<tr class="item-sep"><td colspan="3"><div class="item-separator">--------------------------------------------------</div></td></tr>`);
+        lines.push(`<tr class="item-sep"><td colspan="3"><div class="item-separator"></div></td></tr>`);
       });
     };
 
@@ -224,166 +228,20 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
     `;
   };
 
-  const receiptCSS = `
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-    }
-    body {
-      font-family: Consolas, 'Courier New', monospace;
-      font-size: 12px;
-      color: #000;
-      display: flex;
-      flex-direction: column;
-    }
-    .receipt-wrapper {
-      width: 80mm;
-      margin: 0 auto;
-      padding: 10px;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
-    }
-    .receipt-content {
-      flex: 1;
-    }
-    .center { text-align: center; }
-    .bold { font-weight: bold; }
-    .company-name { font-size: 16px; margin-bottom: 2px; }
-    .section-title { font-size: 13px; margin-bottom: 4px; }
-    .sep { 
-      text-align: center;
-      color: #000;
-      font-size: 12px;
-      line-height: 1;
-      margin: 4px 0;
-      padding: 2px 0;
-      font-family: Consolas, 'Courier New', monospace;
-      font-weight: normal;
-      letter-spacing: 0;
-    }
-    .spacer { height: 4px; }
-    .row { display: flex; justify-content: space-between; padding: 1px 0; }
-    .total-row { font-size: 14px; margin-top: 4px; }
-    .sub { font-size: 11px; padding-left: 4px; color: #333; }
-    .obs { font-style: italic; }
-    .item-sep td { padding: 0; }
-    .item-separator {
-      display: block;
-      width: 100%;
-      margin: 3px 0;
-      overflow: hidden;
-      white-space: nowrap;
-      text-align: center;
-      letter-spacing: 0;
-      line-height: 1;
-      color: #000;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th, td { padding: 3px 0; vertical-align: top; }
-    th { font-weight: bold; }
-    .left { text-align: left; }
-    .right { text-align: right; }
-    th:first-child, td:first-child { width: 28px; }
-    th:last-child, td:last-child { width: 70px; text-align: right; }
-    
-    @media print {
-      * { margin: 0; padding: 0; }
-      html, body { margin: 0; padding: 0; width: 100%; }
-      body { display: flex; flex-direction: column; }
-      .receipt-wrapper { 
-        width: 100%;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-      }
-      .receipt-content { flex: 1; }
-      .sep { 
-        display: block !important;
-        visibility: visible !important;
-        break-inside: avoid;
-        page-break-inside: avoid;
-        color: #000 !important;
-        line-height: 1 !important;
-        margin: 3px 0 !important;
-      }
-      .spacer { display: block !important; height: 2px !important; }
-    }
-  `;
-
   const printReceipt = () => {
     const content = buildReceiptHTML();
     const w = window.open('', '', 'width=320,height=600');
     if (!w) return;
-    w.document.write(`<html><head><style>${receiptCSS}</style></head><body>${content}</body></html>`);
+    w.document.write(buildReceiptDocument(content, paper));
     w.document.close();
     w.print();
     w.close();
   };
 
-  const previewHTML = buildReceiptHTML();
-
-  const previewCSS = `
-    .receipt-preview { 
-      font-family: Consolas, 'Courier New', monospace; 
-      font-size: 12px;
-      display: flex;
-      flex-direction: column;
-      min-height: 100%;
-    }
-    .receipt-preview .receipt-wrapper {
-      display: flex;
-      flex-direction: column;
-      min-height: 100%;
-    }
-    .receipt-preview .receipt-content {
-      flex: 1;
-    }
-    .receipt-preview .center { text-align: center; }
-    .receipt-preview .bold { font-weight: bold; }
-    .receipt-preview .company-name { font-size: 16px; margin-bottom: 2px; }
-    .receipt-preview .section-title { font-size: 13px; margin-bottom: 4px; }
-    .receipt-preview .sep { 
-      text-align: center;
-      color: #000;
-      font-size: 12px;
-      line-height: 1;
-      margin: 4px 0;
-      padding: 2px 0;
-      font-family: Consolas, 'Courier New', monospace;
-      font-weight: normal;
-      letter-spacing: 0;
-    }
-    .receipt-preview .spacer { height: 4px; }
-    .receipt-preview .row { display: flex; justify-content: space-between; padding: 1px 0; }
-    .receipt-preview .total-row { font-size: 14px; margin-top: 4px; }
-    .receipt-preview .sub { font-size: 11px; padding-left: 4px; color: #333; }
-    .receipt-preview .obs { font-style: italic; }
-    .receipt-preview .item-sep td { padding: 0; }
-    .receipt-preview .item-separator {
-      display: block;
-      width: 100%;
-      margin: 3px 0;
-      overflow: hidden;
-      white-space: nowrap;
-      text-align: center;
-      letter-spacing: 0;
-      line-height: 1;
-      color: #000;
-    }
-    .receipt-preview table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .receipt-preview th, .receipt-preview td { padding: 3px 0; vertical-align: top; }
-    .receipt-preview th { font-weight: bold; }
-    .receipt-preview .left { text-align: left; }
-    .receipt-preview .right { text-align: right; }
-    .receipt-preview th:first-child, .receipt-preview td:first-child { width: 28px; }
-    .receipt-preview th:last-child, .receipt-preview td:last-child { width: 70px; text-align: right; }
-  `;
+  const changePaper = (value: PaperWidth) => {
+    setPaper(value);
+    savePaperWidth(value);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -391,6 +249,22 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
         <DialogHeader>
           <DialogTitle className="text-foreground">Imprimir nota do pedido #{sale.code}?</DialogTitle>
         </DialogHeader>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Papel:</span>
+          {PAPER_WIDTHS.map(width => (
+            <Button
+              key={width}
+              variant={paper === width ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              aria-pressed={paper === width}
+              onClick={() => changePaper(width)}
+            >
+              {width}mm
+            </Button>
+          ))}
+        </div>
 
         <div className="flex gap-2">
           <Button onClick={printReceipt} className="flex-1 gap-2">
@@ -408,8 +282,16 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
 
         {showPreview && (
           <div className="bg-white text-black border border-border rounded-lg p-4 max-h-[45vh] overflow-y-auto animate-fade-in">
-            <style dangerouslySetInnerHTML={{ __html: previewCSS }} />
-            <div className="receipt-preview" dangerouslySetInnerHTML={{ __html: previewHTML }} />
+            {/* Same document and width as the printout; sandbox keeps scripts disabled */}
+            <iframe
+              key={paper}
+              title="Pré-visualização da nota"
+              sandbox="allow-same-origin"
+              srcDoc={buildReceiptDocument(buildReceiptHTML(), paper)}
+              onLoad={e => setPreviewHeight(e.currentTarget.contentDocument?.body.scrollHeight ?? 0)}
+              className="block mx-auto border-0"
+              style={{ width: `${paper}mm`, height: previewHeight }}
+            />
           </div>
         )}
 
