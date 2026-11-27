@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Sale, PAYMENT_METHODS } from '@/types/pizzaria';
 import { formatCurrency } from '@/lib/format';
-import { PAPER_WIDTHS, PaperWidth, buildReceiptDocument, loadPaperWidth, savePaperWidth } from '@/lib/receipt-print';
+import { PAPER_SIZE, buildReceiptDocument } from '@/lib/receipt-print';
 import { Printer, Eye, EyeOff } from 'lucide-react';
 import { useState } from 'react';
 
@@ -52,7 +52,6 @@ const stripAccents = (text: string): string => {
 
 export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) {
   const [showPreview, setShowPreview] = useState(false);
-  const [paper, setPaper] = useState<PaperWidth>(loadPaperWidth);
   const [previewHeight, setPreviewHeight] = useState(0);
 
   if (!sale) return null;
@@ -232,15 +231,10 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
     const content = buildReceiptHTML();
     const w = window.open('', '', 'width=320,height=600');
     if (!w) return;
-    w.document.write(buildReceiptDocument(content, paper));
+    w.document.write(buildReceiptDocument(content));
     w.document.close();
     w.print();
     w.close();
-  };
-
-  const changePaper = (value: PaperWidth) => {
-    setPaper(value);
-    savePaperWidth(value);
   };
 
   return (
@@ -249,22 +243,6 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
         <DialogHeader>
           <DialogTitle className="text-foreground">Imprimir nota do pedido #{sale.code}?</DialogTitle>
         </DialogHeader>
-
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Papel:</span>
-          {PAPER_WIDTHS.map(width => (
-            <Button
-              key={width}
-              variant={paper === width ? 'default' : 'outline'}
-              size="sm"
-              className="flex-1"
-              aria-pressed={paper === width}
-              onClick={() => changePaper(width)}
-            >
-              {width}mm
-            </Button>
-          ))}
-        </div>
 
         <div className="flex gap-2">
           <Button onClick={printReceipt} className="flex-1 gap-2">
@@ -284,13 +262,12 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
           <div className="bg-white text-black border border-border rounded-lg p-4 max-h-[45vh] overflow-y-auto animate-fade-in">
             {/* Same document and width as the printout; sandbox keeps scripts disabled */}
             <iframe
-              key={paper}
               title="Pré-visualização da nota"
               sandbox="allow-same-origin"
-              srcDoc={buildReceiptDocument(buildReceiptHTML(), paper)}
+              srcDoc={buildReceiptDocument(buildReceiptHTML())}
               onLoad={e => setPreviewHeight(e.currentTarget.contentDocument?.body.scrollHeight ?? 0)}
               className="block mx-auto border-0"
-              style={{ width: `${paper}mm`, height: previewHeight }}
+              style={{ width: PAPER_SIZE.width, height: previewHeight }}
             />
           </div>
         )}
