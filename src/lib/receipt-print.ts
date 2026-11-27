@@ -44,6 +44,15 @@ const RECEIPT_CSS = `
   .item-separator { border-top: 1px dashed #000; margin: 3px 0; }
 `;
 
+/** Escapes text before it goes into the receipt HTML. The print window shares the app origin. */
+export const escapeHtml = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 /** Full HTML document used both to print and to preview the receipt. */
 export const buildReceiptDocument = (content: string): string =>
   `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${RECEIPT_CSS}</style></head><body>${content}</body></html>`;

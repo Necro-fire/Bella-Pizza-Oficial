@@ -74,6 +74,9 @@ export function TopNav() {
     if (newPassword !== confirmPassword) {
       toast.error('As senhas não coincidem'); return;
     }
+    if (newPassword.length < 8) {
+      toast.error('A nova senha deve ter pelo menos 8 caracteres'); return;
+    }
     if (await changePassword(currentPassword, newPassword)) {
       toast.success('Senha alterada com sucesso');
       setShowSettings(false); resetFields();

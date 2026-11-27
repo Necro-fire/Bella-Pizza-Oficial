@@ -89,8 +89,14 @@ async function requireSession(req: Request): Promise<boolean> {
   const token = authHeader.replace(/^Bearer\s+/i, "");
   if (!token) return false;
   const { data } = await admin.auth.getUser(token);
-  return !!data.user;
+  if (!data.user?.email) return false;
+  // Only the internal POS account counts: other accounts in the project are rejected.
+  const s = await readSettings(["pos_user_email"]);
+  return data.user.email.toLowerCase() === (s.pos_user_email || "").toLowerCase();
 }
+
+const isText = (v: unknown, max: number): v is string =>
+  typeof v === "string" && v.length <= max;
 
 const companyInfo = (s: Record<string, string>) => ({
   companyName: s.company_name || "",
@@ -158,6 +164,9 @@ Deno.serve(async (req) => {
       case "change_password": {
         if (!(await requireSession(req))) return json({ success: false }, 401);
         const s = await readSettings(["auth_password"]);
+        if (!isText(payload.newPassword, 128) || payload.newPassword.length < 8) {
+          return json({ success: false });
+        }
         if (payload.currentPassword === s.auth_password) {
           await writeSetting("auth_password", payload.newPassword);
           return json({ success: true });
@@ -168,6 +177,9 @@ Deno.serve(async (req) => {
       case "change_pin": {
         if (!(await requireSession(req))) return json({ success: false }, 401);
         const s = await readSettings(["auth_pin"]);
+        if (!isText(payload.newPin, 4) || !/^\d{4}$/.test(payload.newPin)) {
+          return json({ success: false });
+        }
         if (payload.currentPin === s.auth_pin) {
           await writeSetting("auth_pin", payload.newPin);
           return json({ success: true });
@@ -177,12 +189,19 @@ Deno.serve(async (req) => {
 
       case "set_cnpj": {
         if (!(await requireSession(req))) return json({ success: false }, 401);
+        if (!isText(payload.cnpj, 18) || onlyDigits(payload.cnpj).length !== 14) {
+          return json({ success: false });
+        }
         await writeSetting("auth_cnpj", payload.cnpj);
         return json({ success: true });
       }
 
       case "set_company": {
         if (!(await requireSession(req))) return json({ success: false }, 401);
+        const fields = [payload.companyName, payload.companyAddress, payload.companyPhone];
+        if (fields.some((v) => v !== undefined && !isText(v, 200))) {
+          return json({ success: false });
+        }
         if (payload.companyName !== undefined) await writeSetting("company_name", payload.companyName);
         if (payload.companyAddress !== undefined) await writeSetting("company_address", payload.companyAddress);
         if (payload.companyPhone !== undefined) await writeSetting("company_phone", payload.companyPhone);

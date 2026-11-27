@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Sale, PAYMENT_METHODS } from '@/types/pizzaria';
 import { formatCurrency } from '@/lib/format';
-import { PAPER_SIZE, buildReceiptDocument } from '@/lib/receipt-print';
+import { PAPER_SIZE, buildReceiptDocument, escapeHtml } from '@/lib/receipt-print';
 import { Printer, Eye, EyeOff } from 'lucide-react';
 import { useState } from 'react';
 
@@ -50,6 +50,9 @@ const stripAccents = (text: string): string => {
   return result;
 };
 
+/** Free text from the database, ready to be placed in the receipt HTML */
+const clean = (text: string): string => escapeHtml(stripAccents(text));
+
 export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) {
   const [showPreview, setShowPreview] = useState(false);
   const [previewHeight, setPreviewHeight] = useState(0);
@@ -78,7 +81,7 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
 
     // Order info
     mainLines.push(SPACER);
-    mainLines.push(`<div class="center bold section-title">PEDIDO #${sale.code}</div>`);
+    mainLines.push(`<div class="center bold section-title">PEDIDO #${escapeHtml(sale.code)}</div>`);
     mainLines.push(`<div class="center">${sale.deliveryMode === 'entrega' ? 'ENTREGA' : 'RETIRADA'}</div>`);
     mainLines.push(`<div class="center">${dateStr} - ${timeStr}</div>`);
     mainLines.push(SPACER);
@@ -96,8 +99,8 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
       mainLines.push(SEP);
       mainLines.push(SPACER);
       mainLines.push(`<div class="center bold section-title">CLIENTE</div>`);
-      if (custName) mainLines.push(`<div>Nome: ${stripAccents(custName)}</div>`);
-      if (custPhone) mainLines.push(`<div>Telefone: ${stripAccents(custPhone)}</div>`);
+      if (custName) mainLines.push(`<div>Nome: ${clean(custName)}</div>`);
+      if (custPhone) mainLines.push(`<div>Telefone: ${clean(custPhone)}</div>`);
       mainLines.push(SPACER);
       mainLines.push(SEP);
     }
@@ -107,13 +110,13 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
       const addr = sale.deliveryAddress;
       mainLines.push(SPACER);
       mainLines.push(`<div class="center bold section-title">ENDERECO DE ENTREGA</div>`);
-      let addrLine = stripAccents(addr.street);
-      if (addr.number) addrLine += `, ${addr.number}`;
-      if (addr.neighborhood) addrLine += ` - ${stripAccents(addr.neighborhood)}`;
+      let addrLine = clean(addr.street);
+      if (addr.number) addrLine += `, ${clean(addr.number)}`;
+      if (addr.neighborhood) addrLine += ` - ${clean(addr.neighborhood)}`;
       mainLines.push(`<div>${addrLine}</div>`);
-      if (addr.cep) mainLines.push(`<div>CEP: ${stripAccents(addr.cep)}</div>`);
-      if (addr.complement) mainLines.push(`<div>${stripAccents(addr.complement)}</div>`);
-      if (addr.reference) mainLines.push(`<div>${stripAccents(addr.reference)}</div>`);
+      if (addr.cep) mainLines.push(`<div>CEP: ${clean(addr.cep)}</div>`);
+      if (addr.complement) mainLines.push(`<div>${clean(addr.complement)}</div>`);
+      if (addr.reference) mainLines.push(`<div>${clean(addr.reference)}</div>`);
       mainLines.push(SPACER);
       mainLines.push(SEP);
     }
@@ -124,23 +127,23 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
 
     const renderItemRows = (items: typeof sale.items, lines: string[]) => {
       items.forEach((item, idx) => {
-        const label = stripAccents(getItemLabel(item));
+        const label = clean(getItemLabel(item));
         const totalItem = item.calculatedPrice * item.quantity;
         const priceLabel = item.calculatedPrice === 0 ? 'Gratis' : formatCurrency(totalItem);
-        lines.push(`<tr><td>${item.quantity}</td><td>${label}</td><td class="right">${priceLabel}</td></tr>`);
+        lines.push(`<tr><td>${escapeHtml(item.quantity)}</td><td>${label}</td><td class="right">${priceLabel}</td></tr>`);
 
         if (item.secondFlavor) {
-          lines.push(`<tr><td></td><td colspan="2" class="sub">/ ${stripAccents(item.secondFlavor.name)}</td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub">/ ${clean(item.secondFlavor.name)}</td></tr>`);
         }
         if (item.border) {
           const bPrice = item.borderFree ? 'Gratis' : formatCurrency(item.border.price);
-          lines.push(`<tr><td></td><td colspan="2" class="sub">Borda: ${stripAccents(item.border.name)} (${bPrice})</td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub">Borda: ${clean(item.border.name)} (${bPrice})</td></tr>`);
         }
         if (item.freeSoda) {
-          lines.push(`<tr><td></td><td colspan="2" class="sub">+ ${stripAccents(item.freeSoda.name)} Gratis</td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub">+ ${clean(item.freeSoda.name)} Gratis</td></tr>`);
         }
         item.observations.forEach(obs => {
-          lines.push(`<tr><td></td><td colspan="2" class="sub obs">* ${stripAccents(obs)}</td></tr>`);
+          lines.push(`<tr><td></td><td colspan="2" class="sub obs">* ${clean(obs)}</td></tr>`);
         });
         // Separator after every item
         lines.push(`<tr class="item-sep"><td colspan="3"><div class="item-separator"></div></td></tr>`);
@@ -189,7 +192,7 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
     mainLines.push(SPACER);
     sale.payments.forEach(p => {
       const label = PAYMENT_METHODS.find(m => m.method === p.method)?.label || p.method;
-      mainLines.push(`<div class="row"><span>${label}</span><span>${formatCurrency(p.amount)}</span></div>`);
+      mainLines.push(`<div class="row"><span>${escapeHtml(label)}</span><span>${formatCurrency(p.amount)}</span></div>`);
     });
     if (sale.change > 0) {
       mainLines.push(`<div class="row"><span>Troco</span><span>${formatCurrency(sale.change)}</span></div>`);
@@ -203,7 +206,7 @@ export function ReceiptDialog({ sale, open, onOpenChange }: ReceiptDialogProps) 
       mainLines.push(SPACER);
       mainLines.push(`<div class="center bold section-title">OBSERVACOES</div>`);
       mainLines.push(SPACER);
-      sale.observations.forEach(o => mainLines.push(`<div>${stripAccents(o)}</div>`));
+      sale.observations.forEach(o => mainLines.push(`<div>${clean(o)}</div>`));
       mainLines.push(SPACER);
       mainLines.push(SEP);
     }
